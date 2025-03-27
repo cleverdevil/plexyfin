@@ -1,0 +1,24 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+[Dd]ist/
+
+# Visual Studio files
+.vs/
+*.user
+*.userosscache
+*.suo
+*.userprefs
+
+# .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Others
+*~
+*.swp
+*.swo
+
+# Ignore the reference project
+jellyfin-collection-artwork-sync/
