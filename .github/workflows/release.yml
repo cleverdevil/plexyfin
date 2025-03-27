@@ -26,19 +26,22 @@ jobs:
     - name: Build
       run: dotnet build --no-restore --configuration Release
       
+    - name: List build output
+      run: find . -name "*.dll" | grep -v obj
+      
     - name: Upload plugin DLL to release
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ github.event.release.upload_url }}
-        asset_path: ./Jellyfin.Plugin.Plexyfin/bin/Release/net6.0/Jellyfin.Plugin.Plexyfin.dll
+        asset_path: ./Jellyfin.Plugin.Plexyfin/bin/Release/net8.0/Jellyfin.Plugin.Plexyfin.dll
         asset_name: Jellyfin.Plugin.Plexyfin.dll
         asset_content_type: application/octet-stream
         
     - name: Generate SHA512 checksum
       run: |
-        CHECKSUM=$(sha512sum ./Jellyfin.Plugin.Plexyfin/bin/Release/net6.0/Jellyfin.Plugin.Plexyfin.dll | awk '{ print $1 }')
+        CHECKSUM=$(sha512sum ./Jellyfin.Plugin.Plexyfin/bin/Release/net8.0/Jellyfin.Plugin.Plexyfin.dll | awk '{ print $1 }')
         echo "CHECKSUM=$CHECKSUM" >> $GITHUB_ENV
         
     - name: Create version JSON file
