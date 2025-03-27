@@ -102,16 +102,16 @@ namespace Jellyfin.Plugin.Plexyfin
                 _logger.LogInformation("Starting scheduled sync from Plex");
                 progress.Report(10);
 
-                // For now, we'll just log a warning and pass null for the services we can't get
-                _logger.LogWarning("IProviderManager and IFileSystem not available to scheduled task, using controller with null dependencies");
+                // We have these services directly in the scheduled task, let's use them
+                _logger.LogInformation("Creating controller with provider manager and file system dependencies");
                 
                 // Create a controller instance to reuse the sync logic
                 var controller = new PlexifinController(
                     _libraryManager,
                     _collectionManager,
                     _httpClientFactory,
-                    null, // providerManager
-                    null, // fileSystem
+                    _providerManager,
+                    _fileSystem,
                     (ILogger<PlexifinController>)_logger);
 
                 // Call the sync method
@@ -157,31 +157,6 @@ namespace Jellyfin.Plugin.Plexyfin
     }
 
     /// <summary>
-    /// Since we're now directly uploading images to Jellyfin, this class is kept only for backward compatibility.
-    /// In this simplified version, we remove the remote image provider functionality since we're using direct API upload.
-    /// </summary>
-    public class PlexImageProvider : IHasOrder
-    {
-        private readonly ILogger<PlexImageProvider> _logger;
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="PlexImageProvider"/> class.
-        /// </summary>
-        /// <param name="logger">Instance of the <see cref="ILogger{T}"/>.</param>
-        public PlexImageProvider(ILogger<PlexImageProvider> logger)
-        {
-            _logger = logger;
-            _logger.LogInformation("PlexImageProvider initialized - direct API uploads are now used for images");
-        }
-
-        /// <inheritdoc />
-        public string Name => "Plexyfin";
-
-        /// <inheritdoc />
-        public int Order => 1;
-    }
-
-    /// <summary>
     /// The main plugin class for Plexyfin.
     /// </summary>
     public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
@@ -210,8 +185,7 @@ namespace Jellyfin.Plugin.Plexyfin
         /// </summary>
         public static Plugin Instance { get; private set; } = null!; // Will be initialized in constructor
         
-        // We're intentionally hiding the base class property, because we want to make it accessible to other parts of the plugin
-        // This is fine since we're assigning the same value as the base class property
+        // We don't need to override the ApplicationPaths property anymore since we're not using it directly
 
         /// <inheritdoc />
         public override string Name => "Plexyfin";
@@ -230,12 +204,7 @@ namespace Jellyfin.Plugin.Plexyfin
             
             try
             {
-                // Create and register the image provider (simplified version)
-                var imageProvider = new PlexImageProvider(
-                    serviceCollection.BuildServiceProvider().GetRequiredService<ILoggerFactory>().CreateLogger<PlexImageProvider>());
-                
-                // Register the provider with the IHasOrder interface
-                serviceCollection.AddSingleton<IHasOrder>(imageProvider);
+                // We no longer need the image provider as we're using direct file system access
                 
                 // Register the scheduled task
                 serviceCollection.AddSingleton<IScheduledTask, PlexifinScheduledTask>();

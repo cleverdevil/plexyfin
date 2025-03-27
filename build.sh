@@ -2,7 +2,7 @@
 set -e
 
 # Configuration
-VERSION="0.0.0.1"
+VERSION="0.2.0.0"
 PLUGIN_ID="Plexyfin"
 PLUGIN_NAME="Jellyfin.Plugin.Plexyfin"
 OUTPUT_DIR="dist"
@@ -32,8 +32,8 @@ cat > "$OUTPUT_DIR/${PLUGIN_ID}_${VERSION}/meta.json" << EOF
 {
   "id": "b9f0c474-e9a8-4292-ae41-eb3c1542f4cd",
   "name": "${PLUGIN_ID}",
-  "description": "A Jellyfin plugin for creating collections in a Plex-like style",
-  "overview": "Create and manage collections with Plex-inspired features",
+  "description": "Syncs collections, artwork, and their metadata from your Plex Media Server to Jellyfin",
+  "overview": "Plugin for Jellyfin that syncs collections and artwork from Plex to Jellyfin",
   "version": "${VERSION}",
   "owner": "plexyfin",
   "category": "General",
@@ -42,7 +42,7 @@ cat > "$OUTPUT_DIR/${PLUGIN_ID}_${VERSION}/meta.json" << EOF
   "status": "Active",
   "autoUpdate": true,
   "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%S.0000000Z")",
-  "changelog": "Initial version"
+  "changelog": "Added direct filesystem artwork sync, fixed collection artwork, improved error handling, added environment variable support"
 }
 EOF
 

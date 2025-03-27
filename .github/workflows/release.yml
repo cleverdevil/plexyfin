@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: 8.0.x
+        
+    - name: Get version from tag
+      id: get_version
+      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+        
+    - name: Restore dependencies
+      run: dotnet restore
+      
+    - name: Build
+      run: dotnet build --no-restore --configuration Release
+      
+    - name: Upload plugin DLL to release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: ./Jellyfin.Plugin.Plexyfin/bin/Release/net6.0/Jellyfin.Plugin.Plexyfin.dll
+        asset_name: Jellyfin.Plugin.Plexyfin.dll
+        asset_content_type: application/octet-stream
+        
+    - name: Generate SHA512 checksum
+      run: |
+        CHECKSUM=$(sha512sum ./Jellyfin.Plugin.Plexyfin/bin/Release/net6.0/Jellyfin.Plugin.Plexyfin.dll | awk '{ print $1 }')
+        echo "CHECKSUM=$CHECKSUM" >> $GITHUB_ENV
+        
+    - name: Create version JSON file
+      run: |
+        mkdir -p repository/versions/plexyfin
+        cat > repository/versions/plexyfin/${{ env.VERSION }}.json << EOF
+        {
+          "name": "Plexyfin",
+          "version": "${{ env.VERSION }}",
+          "targetAbi": "10.8.0.0",
+          "changelog": "See GitHub release for details",
+          "description": "Sync collections and artwork from Plex to Jellyfin",
+          "overview": "A plugin that synchronizes collections and artwork from your Plex Media Server to Jellyfin",
+          "owner": "cleverdevil",
+          "category": "Metadata",
+          "artifacts": [
+            {
+              "filename": "Jellyfin.Plugin.Plexyfin.dll",
+              "url": "https://github.com/cleverdevil/plexyfin/releases/download/v${{ env.VERSION }}/Jellyfin.Plugin.Plexyfin.dll",
+              "checksum": "${{ env.CHECKSUM }}"
+            }
+          ]
+        }
+        EOF
+        
+    - name: Update manifest.json
+      run: |
+        TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        
+        # Create or update manifest.json
+        if [ ! -f "repository/manifest.json" ]; then
+          cat > repository/manifest.json << EOF
+        {
+          "name": "Plexyfin Plugin Repository",
+          "description": "Repository for the Plexyfin plugin that syncs collections from Plex to Jellyfin",
+          "url": "https://cleverdevil.github.io/plexyfin",
+          "plugins": [
+            {
+              "guid": "eb5d7894-8eef-4b36-aa6f-5d124e828ce1",
+              "name": "Plexyfin",
+              "description": "Sync collections and artwork from Plex to Jellyfin",
+              "overview": "A plugin that synchronizes collections and artwork from your Plex Media Server to Jellyfin",
+              "owner": "cleverdevil",
+              "category": "Metadata",
+              "versions": [
+                {
+                  "version": "${{ env.VERSION }}",
+                  "changelog": "See GitHub release for details",
+                  "targetAbi": "10.8.0.0",
+                  "sourceUrl": "https://cleverdevil.github.io/plexyfin/versions/plexyfin/${{ env.VERSION }}.json",
+                  "checksum": "${{ env.CHECKSUM }}",
+                  "timestamp": "$TIMESTAMP"
+                }
+              ]
+            }
+          ]
+        }
+        EOF
+        else
+          # TODO: Add logic to update existing manifest with new version
+          echo "Manifest exists. Manual update required."
+        fi
+        
+    - name: Deploy to GitHub Pages
+      uses: JamesIves/github-pages-deploy-action@v4
+      with:
+        folder: repository
+        branch: gh-pages

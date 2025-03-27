@@ -66,75 +66,100 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             _fileSystem = fileSystem; // Can be null
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
-
+        
         /// <summary>
-        /// Creates a new collection with all movies starting with 'A'.
+        /// Tests connection to the Plex server and returns library sections.
         /// </summary>
-        /// <param name="config">The configuration containing the collection name.</param>
         /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-        [HttpPost("CreateCollection")]
+        [HttpGet("TestPlexConnection")]
         [AllowAnonymous]
         [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult> CreateCollection([FromBody] CollectionRequestDto config)
+        public async Task<ActionResult> TestPlexConnection([FromQuery] string? url = null, [FromQuery] string? token = null)
         {
-            if (config == null)
-            {
-                return BadRequest("Configuration must be provided");
-            }
-            
             try
             {
-                // Get all movies that start with 'A'
-                var movies = _libraryManager.GetItemList(new InternalItemsQuery
-                {
-                    IncludeItemTypes = new[] { BaseItemKind.Movie },
-                    IsVirtualItem = false,
-                    Recursive = true
-                })
-                .OfType<Movie>()
-                .Where(m => m.Name.StartsWith("A", StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
-                if (movies.Count == 0)
-                {
-                    return Ok(new { Message = "No movies found that start with 'A'" });
-                }
-
-                // Create the collection
-                var collectionName = string.IsNullOrEmpty(config.CollectionName) ? "Test Collection" : config.CollectionName;
-                var collection = await _collectionManager.CreateCollectionAsync(new CollectionCreationOptions
-                {
-                    Name = collectionName,
-                    IsLocked = true
-                }).ConfigureAwait(false);
+                var config = Plugin.Instance!.Configuration;
                 
-                // Add items to the collection
-                await _collectionManager.AddToCollectionAsync(collection.Id, movies.Select(m => m.Id).ToArray()).ConfigureAwait(false);
-
-                // Save updated plugin configuration
-                var pluginConfig = Plugin.Instance!.Configuration;
-                pluginConfig.CollectionName = collectionName;
-                Plugin.Instance.SaveConfiguration();
-
-                return Ok(new
+                // Use the URL and token from query parameters if provided, otherwise use the ones from config
+                string serverUrl = url ?? config.PlexServerUrl;
+                string apiToken = token ?? config.PlexApiToken;
+                
+                // Validate configuration
+                if (string.IsNullOrEmpty(serverUrl) || string.IsNullOrEmpty(apiToken))
                 {
-                    CollectionId = collection.Id,
-                    CollectionName = collection.Name,
-                    MoviesAdded = movies.Count
-                });
-            }
-            catch (InvalidOperationException ex)
-            {
-                return StatusCode(500, new { Error = $"Policy error: {ex.Message}" });
+                    return BadRequest(new { Success = false, Error = "Plex server URL and API token must be provided" });
+                }
+                
+                // Create a PlexClient instance
+                var plexClient = new PlexClient(_httpClientFactory, _logger, serverUrl, apiToken);
+                
+                try
+                {
+                    // Try to get library sections to test the connection
+                    var sections = await plexClient.GetLibrarySections().ConfigureAwait(false);
+                    
+                    // Return success with sections
+                    // Return with explicit camelCase property names to match JavaScript conventions
+                    return Ok(new 
+                    { 
+                        success = true, 
+                        message = "Successfully connected to Plex Media Server",
+                        libraries = sections.Select(s => new
+                        {
+                            id = s.Key,
+                            title = s.Title,
+                            type = s.Type,
+                            // If no libraries have been explicitly selected yet, check all by default
+                            isSelected = config.SelectedLibraries.Count == 0 || config.SelectedLibraries.Contains(s.Key)
+                        }).ToList()
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error connecting to Plex server at {Url}", serverUrl);
+                    return Ok(new { success = false, error = "Cannot connect to Plex. Check your URL and API Token." });
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error creating collection");
-                return StatusCode(500, new { Error = ex.Message });
+                _logger.LogError(ex, "Error in TestPlexConnection endpoint");
+                return StatusCode(500, new { Success = false, Error = ex.Message });
             }
         }
         
+        /// <summary>
+        /// Updates the list of selected Plex libraries.
+        /// </summary>
+        /// <param name="libraryIds">The list of library IDs to select.</param>
+        /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+        [HttpPost("UpdateSelectedLibraries")]
+        [AllowAnonymous]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult UpdateSelectedLibraries([FromBody] List<string> libraryIds)
+        {
+            try
+            {
+                var config = Plugin.Instance!.Configuration;
+                
+                // Update the selected libraries in the configuration
+                config.SelectedLibraries = libraryIds ?? new List<string>();
+                
+                // Save the updated configuration
+                Plugin.Instance.SaveConfiguration();
+                
+                return Ok(new { Success = true, Message = "Selected libraries updated successfully" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating selected libraries");
+                return StatusCode(500, new { Success = false, Error = ex.Message });
+            }
+        }
+
         /// <summary>
         /// Syncs collections from Plex Media Server.
         /// </summary>
@@ -172,7 +197,9 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 {
                     Message = "Sync completed successfully",
                     CollectionsAdded = syncResult.CollectionsAdded,
-                    PlaylistsAdded = syncResult.PlaylistsAdded
+                    CollectionsUpdated = syncResult.CollectionsUpdated,
+                    PlaylistsAdded = syncResult.PlaylistsAdded,
+                    PlaylistsUpdated = syncResult.PlaylistsUpdated
                 });
             }
             catch (Exception ex)
@@ -206,8 +233,12 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     _logger.LogInformation("Deleted {Count} existing collections", deletedCount);
                 }
                 
-                result.CollectionsAdded = await SyncCollectionsFromPlexAsync(plexClient).ConfigureAwait(false);
-                _logger.LogInformation("Collection sync completed. Added {Count} collections", result.CollectionsAdded);
+                var collectionResults = await SyncCollectionsFromPlexAsync(plexClient).ConfigureAwait(false);
+                result.CollectionsAdded = collectionResults.added;
+                result.CollectionsUpdated = collectionResults.updated;
+                
+                _logger.LogInformation("Collection sync completed. Added {Added} collections, updated {Updated} collections", 
+                    result.CollectionsAdded, result.CollectionsUpdated);
             }
             
             // Sync playlists if enabled (not implemented yet)
@@ -481,9 +512,17 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 
                 try
                 {
-                    // Get the data directory path from Jellyfin
-                    // Use a hardcoded path for now as we can't easily access the ApplicationPaths
+                    // Get the data directory path - typically /config/data in Docker installs
+                    // This can be different in various installations, but this path is common
                     var dataPath = "/config/data";
+                    
+                    // Allow overriding the data path through environment variables
+                    var envDataPath = Environment.GetEnvironmentVariable("JELLYFIN_DATA_PATH");
+                    if (!string.IsNullOrEmpty(envDataPath))
+                    {
+                        dataPath = envDataPath;
+                        _logger.LogInformation("Using data path from environment: {0}", dataPath);
+                    }
                     // Collections are stored in the "collections" subfolder
                     var collectionsPath = Path.Combine(dataPath, "collections");
                     
@@ -586,25 +625,46 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     _logger.LogInformation("Queuing metadata refresh for collection: {Name}", item.Name);
                     if (_providerManager != null)
                     {
-                        // Instead of creating MetadataRefreshOptions with constructor, 
-                        // let's manually trigger an image update
+                        // Trigger an image update first
                         await _libraryManager.UpdateItemAsync(
                             item, 
                             item.GetParent(), 
                             ItemUpdateType.ImageUpdate, 
                             CancellationToken.None).ConfigureAwait(false);
                         
-                        // For now, just log that we're skipping the metadata refresh
-                        _logger.LogInformation("Skipping metadata refresh due to complexity with DirectoryService implementation");
+                        // Since we're having issues with MetadataRefreshOptions constructor,
+                        // let's use a simpler approach to trigger a refresh
+                        _logger.LogInformation("Triggering image refresh for {0}", item.Name);
+                        
+                        // Use UpdateItemAsync with the ImageUpdate type to trigger a refresh
+                        await _libraryManager.UpdateItemAsync(
+                            item,
+                            item.GetParent(),
+                            ItemUpdateType.ImageUpdate,
+                            CancellationToken.None).ConfigureAwait(false);
+                        
+                        // Also trigger a metadata refresh
+                        await _libraryManager.UpdateItemAsync(
+                            item,
+                            item.GetParent(),
+                            ItemUpdateType.MetadataEdit,
+                            CancellationToken.None).ConfigureAwait(false);
                     }
                     else
                     {
-                        _logger.LogWarning("Provider manager not available, falling back to UpdateItemAsync");
-                        // Fall back to UpdateItemAsync for image refresh
+                        _logger.LogWarning("Provider manager not available, using UpdateItemAsync");
+                        // Trigger an image refresh
                         await _libraryManager.UpdateItemAsync(
                             item, 
                             item.GetParent(), 
                             ItemUpdateType.ImageUpdate, 
+                            CancellationToken.None).ConfigureAwait(false);
+                            
+                        // Also trigger a metadata refresh
+                        await _libraryManager.UpdateItemAsync(
+                            item,
+                            item.GetParent(),
+                            ItemUpdateType.MetadataEdit,
                             CancellationToken.None).ConfigureAwait(false);
                     }
                 }
@@ -690,12 +750,22 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             public int CollectionsAdded { get; set; }
             
             /// <summary>
+            /// Gets or sets the number of collections updated.
+            /// </summary>
+            public int CollectionsUpdated { get; set; }
+            
+            /// <summary>
             /// Gets or sets the number of playlists added.
             /// </summary>
             public int PlaylistsAdded { get; set; }
+            
+            /// <summary>
+            /// Gets or sets the number of playlists updated.
+            /// </summary>
+            public int PlaylistsUpdated { get; set; }
         }
         
-        private async Task<int> SyncCollectionsFromPlexAsync(PlexClient plexClient)
+        private async Task<(int added, int updated)> SyncCollectionsFromPlexAsync(PlexClient plexClient)
         {
             _logger.LogInformation("Starting Plex collection sync");
             
@@ -705,16 +775,32 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 var sections = await plexClient.GetLibrarySections().ConfigureAwait(false);
                 _logger.LogInformation("Found {Count} library sections in Plex", sections.Count);
                 
+                // Get the list of selected libraries from configuration
+                var config = Plugin.Instance!.Configuration;
+                var selectedLibraries = config.SelectedLibraries;
+                
+                // Always filter based on selected libraries
+                _logger.LogInformation("Filtering sections based on {Count} selected libraries", selectedLibraries.Count);
+                sections = sections.Where(s => selectedLibraries.Contains(s.Key)).ToList();
+                _logger.LogInformation("{Count} sections selected for processing", sections.Count);
+                
+                // If no libraries are selected, log a message and return early
+                if (sections.Count == 0)
+                {
+                    _logger.LogWarning("No libraries selected for synchronization. Please select at least one library in the configuration.");
+                }
+                
                 // Log sections for debugging
                 foreach (var section in sections)
                 {
-                    _logger.LogInformation("Plex section: {Title} (Type: {Type})", section.Title, section.Type);
+                    _logger.LogInformation("Processing Plex section: {Title} (Type: {Type})", section.Title, section.Type);
                 }
                 
                 int collectionsAdded = 0;
+                int collectionsUpdated = 0;
                 
-                // Process all media sections (movies, shows, etc.)
-                _logger.LogInformation("Processing all library sections for collections");
+                // Process all selected media sections (movies, shows, etc.)
+                _logger.LogInformation("Processing library sections for collections");
                 
                 foreach (var section in sections)
                 {
@@ -746,10 +832,18 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                     Name = collection.Title
                                 }).FirstOrDefault();
                                 
+                                Guid collectionId = Guid.Empty; // Initialize with default value
+                                bool isNewCollection = false;
+                                
                                 if (existingCollection != null)
                                 {
-                                    _logger.LogInformation("Collection already exists in Jellyfin: {Title}", collection.Title);
-                                    continue;
+                                    _logger.LogInformation("Collection already exists in Jellyfin, updating: {Title}", collection.Title);
+                                    collectionId = existingCollection.Id;
+                                }
+                                else
+                                {
+                                    _logger.LogInformation("Creating new collection in Jellyfin: {Title}", collection.Title);
+                                    isNewCollection = true;
                                 }
                                 
                                 // Log key for debugging
@@ -840,26 +934,56 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                     continue;
                                 }
                                 
-                                // Create the collection in Jellyfin
-                                _logger.LogInformation("Creating collection {Title} with {Count} items", collection.Title, jellyfItems.Count);
-                                
-                                var jellyfCollection = await _collectionManager.CreateCollectionAsync(new CollectionCreationOptions
+                                if (isNewCollection)
                                 {
-                                    Name = collection.Title,
-                                    IsLocked = true,
-                                    UserIds = Array.Empty<Guid>() // System collection
-                                }).ConfigureAwait(false);
+                                    // Create a new collection
+                                    _logger.LogInformation("Creating collection {Title} with {Count} items", collection.Title, jellyfItems.Count);
+                                    
+                                    var jellyfCollection = await _collectionManager.CreateCollectionAsync(new CollectionCreationOptions
+                                    {
+                                        Name = collection.Title,
+                                        IsLocked = true,
+                                        UserIds = Array.Empty<Guid>() // System collection
+                                    }).ConfigureAwait(false);
+                                    
+                                    collectionId = jellyfCollection.Id;
+                                    
+                                    _logger.LogInformation("Successfully created collection: {Title} with ID {Id}", 
+                                        jellyfCollection.Name, collectionId);
+                                    
+                                    collectionsAdded++;
+                                }
+                                else
+                                {
+                                    // For existing collections, first remove all current items
+                                    _logger.LogInformation("Updating existing collection {Title} with new items", collection.Title);
+                                    
+                                    // Get current items in the collection
+                                    var currentItemIds = _libraryManager.GetItemIds(new InternalItemsQuery { 
+                                        AncestorIds = new[] { collectionId } 
+                                    });
+                                    
+                                    if (currentItemIds.Count > 0)
+                                    {
+                                        _logger.LogInformation("Removing {Count} existing items from collection", currentItemIds.Count);
+                                        await _collectionManager.RemoveFromCollectionAsync(collectionId, currentItemIds.ToArray()).ConfigureAwait(false);
+                                    }
+                                    
+                                    collectionsUpdated++;
+                                }
                                 
-                                // Add items to the collection
-                                await _collectionManager.AddToCollectionAsync(jellyfCollection.Id, jellyfItems.ToArray()).ConfigureAwait(false);
+                                // Add items to the collection (for both new and existing collections)
+                                if (jellyfItems.Count > 0)
+                                {
+                                    _logger.LogInformation("Adding {Count} items to collection {Title}", jellyfItems.Count, collection.Title);
+                                    await _collectionManager.AddToCollectionAsync(collectionId, jellyfItems.ToArray()).ConfigureAwait(false);
+                                }
                                 
-                                // Set collection overview/description and images (if enabled)
-                                await UpdateCollectionMetadataAsync(jellyfCollection.Id, collection).ConfigureAwait(false);
+                                // Set collection overview/description and images (for both new and existing collections)
+                                await UpdateCollectionMetadataAsync(collectionId, collection).ConfigureAwait(false);
                                 
-                                _logger.LogInformation("Successfully created collection: {Title} with {Count} items", 
-                                    jellyfCollection.Name, jellyfItems.Count);
-                                
-                                collectionsAdded++;
+                                _logger.LogInformation("Successfully {Action} collection: {Title} with {Count} items", 
+                                    isNewCollection ? "created" : "updated", collection.Title, jellyfItems.Count);
                             }
                             catch (Exception ex)
                             {
@@ -875,7 +999,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     }
                 }
                 
-                return collectionsAdded;
+                return (collectionsAdded, collectionsUpdated);
             }
             catch (Exception ex)
             {
@@ -883,17 +1007,5 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 throw;
             }
         }
-    }
-
-    /// <summary>
-    /// DTO for collection requests.
-    /// </summary>
-    public class CollectionRequestDto
-    {
-        /// <summary>
-        /// Gets or sets the name of the collection.
-        /// </summary>
-        [Required]
-        public string CollectionName { get; set; } = string.Empty;
     }
 }

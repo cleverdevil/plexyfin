@@ -32,7 +32,26 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
         {
             _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _baseUrl = baseUrl?.TrimEnd('/') ?? throw new ArgumentNullException(nameof(baseUrl));
+            
+            // Ensure the baseUrl is properly formatted
+            if (!string.IsNullOrEmpty(baseUrl))
+            {
+                // Make sure the URL has a scheme
+                if (!baseUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && 
+                    !baseUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    baseUrl = "http://" + baseUrl;
+                    _logger.LogInformation("Added http:// scheme to Plex server URL: {Url}", baseUrl);
+                }
+                
+                // Trim trailing slash
+                _baseUrl = baseUrl.TrimEnd('/');
+            }
+            else
+            {
+                throw new ArgumentNullException(nameof(baseUrl));
+            }
+            
             _apiToken = apiToken ?? throw new ArgumentNullException(nameof(apiToken));
         }
 
@@ -42,24 +61,33 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
         /// <returns>A list of Plex library sections.</returns>
         public async Task<List<PlexLibrarySection>> GetLibrarySections()
         {
-            using var client = _httpClientFactory.CreateClient();
-            var requestUrl = $"{_baseUrl}/library/sections";
-
-            using var request = new HttpRequestMessage(HttpMethod.Get, requestUrl);
-            SetPlexHeaders(request);
-
-            _logger.LogDebug("Fetching library sections from Plex at {Url}", requestUrl);
-            
-            var response = await client.SendAsync(request).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-            
-            var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-            _logger.LogDebug("Received response: {Content}", content.Substring(0, Math.Min(100, content.Length)));
-            
-            var sections = new List<PlexLibrarySection>();
-
             try
             {
+                using var client = _httpClientFactory.CreateClient();
+                
+                // Ensure baseUrl is valid
+                if (!Uri.TryCreate(_baseUrl, UriKind.Absolute, out var baseUri))
+                {
+                    throw new ArgumentException($"Invalid Plex server URL: {_baseUrl}");
+                }
+                
+                var requestUri = new Uri(baseUri, "/library/sections");
+                var requestUrl = requestUri.ToString();
+
+                _logger.LogDebug("Fetching library sections from Plex at {Url}", requestUrl);
+                
+                using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+                SetPlexHeaders(request);
+                
+                var response = await client.SendAsync(request).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+                
+                var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                _logger.LogDebug("Received response: {Content}", content.Length > 100 ? 
+                    content.Substring(0, 100) + "..." : content);
+                
+                var sections = new List<PlexLibrarySection>();
+
                 // Parse the XML response from Plex
                 var doc = XDocument.Parse(content);
                 var container = doc.Root;
@@ -81,14 +109,14 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                     
                     sections.Add(plexSection);
                 }
+                
+                return sections;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error parsing Plex library sections response");
-                throw new InvalidOperationException("Error parsing Plex response", ex);
+                _logger.LogError(ex, "Error fetching Plex library sections from {BaseUrl}", _baseUrl);
+                throw;
             }
-            
-            return sections;
         }
 
         /// <summary>

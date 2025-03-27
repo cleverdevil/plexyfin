@@ -1,0 +1,25 @@
+{
+  "name": "Plexyfin Plugin Repository",
+  "description": "Repository for the Plexyfin plugin that syncs collections from Plex to Jellyfin",
+  "url": "https://cleverdevil.github.io/plexyfin",
+  "plugins": [
+    {
+      "guid": "eb5d7894-8eef-4b36-aa6f-5d124e828ce1",
+      "name": "Plexyfin",
+      "description": "Sync collections and artwork from Plex to Jellyfin",
+      "overview": "A plugin that synchronizes collections and artwork from your Plex Media Server to Jellyfin",
+      "owner": "PlexifinDev",
+      "category": "Metadata",
+      "versions": [
+        {
+          "version": "0.2.0.0",
+          "changelog": "Initial release",
+          "targetAbi": "10.8.0.0",
+          "sourceUrl": "https://cleverdevil.github.io/plexyfin/versions/plexyfin/0.2.0.0.json",
+          "checksum": "SHA512_CHECKSUM_PLACEHOLDER",
+          "timestamp": "2025-03-27T00:00:00Z"
+        }
+      ]
+    }
+  ]
+}

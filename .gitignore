@@ -1,24 +1,39 @@
+# .NET build artifacts
+bin/
+obj/
+*.dll
+*.pdb
+*.user
+*.suo
+*.cache
+*.log
+
+# IDE files
+.vs/
+.vscode/
+.idea/
+*.sln.iml
+
+# macOS files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
 # Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
 [Bb]in/
 [Oo]bj/
-[Dd]ist/
-
-# Visual Studio files
-.vs/
-*.user
-*.userosscache
-*.suo
-*.userprefs
-
-# .NET Core
-project.lock.json
-project.fragment.lock.json
-artifacts/
-
-# Others
-*~
-*.swp
-*.swo
-
-# Ignore the reference project
-jellyfin-collection-artwork-sync/
+[Ll]og/
+[Ll]ogs/
