@@ -279,69 +279,96 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
             using var client = _httpClientFactory.CreateClient();
             var items = new List<PlexItem>();
             
-            // Format 1: Extract ID from key if available
-            var match = System.Text.RegularExpressions.Regex.Match(collectionKey, @"/(\d+)");
-            if (match.Success)
+            _logger.LogInformation("Getting collection items for key: {Key}", collectionKey);
+            
+            // If we can't get any items, return an empty list instead of throwing an exception
+            // This allows collections with no items to be created
+            List<string> urlsToTry = new List<string>();
+            
+            // Format 1: If the key is a full path like "/library/collections/7764/children"
+            if (collectionKey.StartsWith("/library/collections/", StringComparison.OrdinalIgnoreCase))
             {
-                var id = match.Groups[1].Value;
+                string directUrl = $"{_baseUrl}{collectionKey}";
+                urlsToTry.Add(directUrl);
                 
-                // Try a few different URL patterns
-                string[] urlPatterns = new[]
+                // Try alternative formats based on the collection ID
+                var idMatch = System.Text.RegularExpressions.Regex.Match(collectionKey, @"/collections/(\d+)");
+                if (idMatch.Success)
                 {
-                    $"{_baseUrl}/library/collections/{id}/items",
-                    $"{_baseUrl}/library/collections/{id}/all",
-                    $"{_baseUrl}/library/collections/{id}/children"
-                };
-                
-                foreach (var url in urlPatterns)
-                {
-                    if (await TryGetCollectionItems(client, url, items).ConfigureAwait(false))
-                    {
-                        return items;
-                    }
+                    var id = idMatch.Groups[1].Value;
+                    _logger.LogInformation("Extracted collection ID: {Id}", id);
+                    
+                    urlsToTry.Add($"{_baseUrl}/library/collections/{id}/items");
+                    urlsToTry.Add($"{_baseUrl}/library/collections/{id}/all");
+                    urlsToTry.Add($"{_baseUrl}/library/collections/{id}/children");
+                    urlsToTry.Add($"{_baseUrl}/library/collections/{id}/metadata");
                 }
             }
-            
-            // Format 2: Try with the raw collection key
+            // Format 2: Extract ID from key if available
+            else
             {
-                string[] urlPatterns = new[]
+                var match = System.Text.RegularExpressions.Regex.Match(collectionKey, @"/(\d+)");
+                if (match.Success)
                 {
-                    $"{_baseUrl}/library/collections/{collectionKey}/items",
-                    $"{_baseUrl}/library/collections/{collectionKey}/all",
-                    $"{_baseUrl}/library/collections/{collectionKey}/children",
-                    $"{_baseUrl}{collectionKey}"  // Use the key directly
-                };
+                    var id = match.Groups[1].Value;
+                    _logger.LogInformation("Extracted ID from key: {Id}", id);
+                    
+                    urlsToTry.Add($"{_baseUrl}/library/collections/{id}/items");
+                    urlsToTry.Add($"{_baseUrl}/library/collections/{id}/all");
+                    urlsToTry.Add($"{_baseUrl}/library/collections/{id}/children");
+                    urlsToTry.Add($"{_baseUrl}/library/collections/{id}/metadata");
+                }
                 
-                foreach (var url in urlPatterns)
+                // Try with the raw collection key
+                urlsToTry.Add($"{_baseUrl}/library/collections/{collectionKey}/items");
+                urlsToTry.Add($"{_baseUrl}/library/collections/{collectionKey}/all");
+                urlsToTry.Add($"{_baseUrl}/library/collections/{collectionKey}/children");
+                urlsToTry.Add($"{_baseUrl}/library/collections/{collectionKey}/metadata");
+                urlsToTry.Add($"{_baseUrl}{collectionKey}");  // Use the key directly
+            }
+            
+            // Try all URLs
+            foreach (var url in urlsToTry)
+            {
+                _logger.LogInformation("Trying URL: {Url}", url);
+                if (await TryGetCollectionItems(client, url, items).ConfigureAwait(false))
                 {
-                    if (await TryGetCollectionItems(client, url, items).ConfigureAwait(false))
-                    {
-                        return items;
-                    }
+                    return items;
                 }
             }
             
             // If we got here, we weren't able to get the items
-            throw new InvalidOperationException($"Could not get collection items for key: {collectionKey}");
+            _logger.LogWarning("Failed to get collection items for key: {Key} after trying all URL patterns. Returning empty list.", collectionKey);
+            
+            // Return an empty list instead of throwing an exception
+            return new List<PlexItem>();
         }
         
         private async Task<bool> TryGetCollectionItems(HttpClient client, string url, List<PlexItem> items)
         {
             try
             {
+                // Make sure we have the token in the URL
+                if (!url.Contains("X-Plex-Token=") && !url.Contains("token="))
+                {
+                    var separator = url.Contains("?") ? "&" : "?";
+                    url = $"{url}{separator}X-Plex-Token={_apiToken}";
+                }
+                
+                _logger.LogInformation("Trying to fetch collection items with URL: {Url}", url);
+                
                 using var request = new HttpRequestMessage(HttpMethod.Get, url);
                 SetPlexHeaders(request);
-                
-                _logger.LogDebug("Trying to fetch collection items with URL: {Url}", url);
                 
                 var response = await client.SendAsync(request).ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode)
                 {
-                    _logger.LogDebug("Failed to get collection items with URL {Url}: {Status}", url, response.StatusCode);
+                    _logger.LogWarning("Failed to get collection items with URL {Url}: {Status}", url, response.StatusCode);
                     return false;
                 }
                 
                 var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                _logger.LogDebug("Response content length: {Length} bytes", content.Length);
                 
                 // Try to parse the response
                 try
@@ -362,7 +389,48 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                     // No media found
                     if (videoElements.Count == 0 && directoryElements.Count == 0)
                     {
-                        _logger.LogDebug("No media found in response for URL {Url}", url);
+                        _logger.LogWarning("No media found in response for URL {Url}. Container has {Count} child elements.", 
+                            url, container.Elements().Count());
+                        
+                        // Log the first few elements to help debug
+                        var firstElements = container.Elements().Take(3).Select(e => e.Name.ToString()).ToList();
+                        if (firstElements.Any())
+                        {
+                            _logger.LogWarning("First few element types: {Elements}", string.Join(", ", firstElements));
+                        }
+                        
+                        // Check if there's a MediaContainer/Metadata structure which is another common format
+                        var metadataElements = container.Elements("Metadata").ToList();
+                        if (metadataElements.Count > 0)
+                        {
+                            _logger.LogInformation("Found {Count} Metadata elements, processing these instead", metadataElements.Count);
+                            
+                            foreach (var metadata in metadataElements)
+                            {
+                                var year = 0;
+                                if (int.TryParse(metadata.Attribute("year")?.Value, out var y))
+                                {
+                                    year = y;
+                                }
+                                
+                                var type = metadata.Attribute("type")?.Value ?? "movie"; // Default to movie if not specified
+                                
+                                var plexItem = new PlexItem
+                                {
+                                    Key = metadata.Attribute("key")?.Value ?? string.Empty,
+                                    Title = metadata.Attribute("title")?.Value ?? string.Empty,
+                                    Type = type,
+                                    Year = year,
+                                    Guid = metadata.Attribute("guid")?.Value ?? string.Empty
+                                };
+                                
+                                items.Add(plexItem);
+                            }
+                            
+                            _logger.LogInformation("Successfully processed {Count} items from Metadata elements", items.Count);
+                            return true;
+                        }
+                        
                         return false;
                     }
                     
@@ -384,7 +452,7 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                         {
                             Key = metadata.Attribute("key")?.Value ?? string.Empty,
                             Title = metadata.Attribute("title")?.Value ?? string.Empty,
-                            Type = metadata.Attribute("type")?.Value ?? string.Empty,
+                            Type = metadata.Attribute("type")?.Value ?? "movie", // Default to movie
                             Year = year,
                             Guid = metadata.Attribute("guid")?.Value ?? string.Empty
                         };
@@ -405,7 +473,7 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                         {
                             Key = metadata.Attribute("key")?.Value ?? string.Empty,
                             Title = metadata.Attribute("title")?.Value ?? string.Empty,
-                            Type = metadata.Attribute("type")?.Value ?? string.Empty,
+                            Type = metadata.Attribute("type")?.Value ?? "show", // Default to show
                             Year = year,
                             Guid = metadata.Attribute("guid")?.Value ?? string.Empty
                         };
