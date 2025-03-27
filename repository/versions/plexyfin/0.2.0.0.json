@@ -11,7 +11,7 @@
     {
       "filename": "Jellyfin.Plugin.Plexyfin.dll",
       "url": "https://github.com/cleverdevil/plexyfin/releases/download/v0.2.0.0/Jellyfin.Plugin.Plexyfin.dll",
-      "checksum": "SHA512_CHECKSUM_PLACEHOLDER"
+      "checksum": ""
     }
   ]
 }
