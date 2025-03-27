@@ -281,8 +281,129 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
             
             _logger.LogInformation("Getting collection items for key: {Key}", collectionKey);
             
-            // If we can't get any items, return an empty list instead of throwing an exception
-            // This allows collections with no items to be created
+            // Extract the collection ID from the key
+            string collectionId = string.Empty;
+            
+            // Try to extract the ID from the key using regex
+            var match = System.Text.RegularExpressions.Regex.Match(collectionKey, @"/collections/(\d+)");
+            if (match.Success)
+            {
+                collectionId = match.Groups[1].Value;
+                _logger.LogInformation("Extracted collection ID: {Id}", collectionId);
+            }
+            else
+            {
+                // If we couldn't extract an ID, use the key as is
+                collectionId = collectionKey;
+            }
+            
+            // First try: Get the collection details to find the ratingKey
+            string ratingKey = string.Empty;
+            
+            // Try to get the collection details from each library section
+            var sections = await GetLibrarySections().ConfigureAwait(false);
+            foreach (var section in sections)
+            {
+                try
+                {
+                    _logger.LogInformation("Checking section {SectionTitle} (ID: {SectionId}) for collection", 
+                        section.Title, section.Key);
+                    
+                    // Get all collections in this section
+                    var url = $"{_baseUrl}/library/sections/{section.Key}/collections";
+                    using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                    SetPlexHeaders(request);
+                    
+                    var response = await client.SendAsync(request).ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        _logger.LogWarning("Failed to get collections from section {SectionId}: {Status}", 
+                            section.Key, response.StatusCode);
+                        continue;
+                    }
+                    
+                    var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    var doc = XDocument.Parse(content);
+                    var container = doc.Root;
+                    
+                    if (container == null)
+                    {
+                        _logger.LogWarning("No root element found in collections response");
+                        continue;
+                    }
+                    
+                    // Look for a collection with matching ID or key
+                    var collectionElements = container.Elements("Directory").ToList();
+                    _logger.LogInformation("Found {Count} collections in section {SectionTitle}", 
+                        collectionElements.Count, section.Title);
+                    
+                    foreach (var collectionElement in collectionElements)
+                    {
+                        var key = collectionElement.Attribute("key")?.Value ?? string.Empty;
+                        var title = collectionElement.Attribute("title")?.Value ?? string.Empty;
+                        var currentRatingKey = collectionElement.Attribute("ratingKey")?.Value ?? string.Empty;
+                        
+                        _logger.LogDebug("Collection: {Title}, Key: {Key}, RatingKey: {RatingKey}", 
+                            title, key, currentRatingKey);
+                        
+                        // Check if this collection matches our target
+                        if (key.Contains(collectionId) || 
+                            (currentRatingKey == collectionId) || 
+                            key.EndsWith(collectionKey))
+                        {
+                            _logger.LogInformation("Found matching collection: {Title} with key {Key}", title, key);
+                            ratingKey = currentRatingKey;
+                            
+                            // Try to get the items directly from this element's key
+                            var directUrl = $"{_baseUrl}{key}";
+                            _logger.LogInformation("Trying direct URL from collection listing: {Url}", directUrl);
+                            
+                            if (await TryGetCollectionItems(client, directUrl, items).ConfigureAwait(false))
+                            {
+                                return items;
+                            }
+                            
+                            break;
+                        }
+                    }
+                    
+                    // If we found the rating key, we can try to get the items
+                    if (!string.IsNullOrEmpty(ratingKey))
+                    {
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error checking section {SectionId} for collection", section.Key);
+                }
+            }
+            
+            // If we found a rating key, try to get the items using that
+            if (!string.IsNullOrEmpty(ratingKey))
+            {
+                _logger.LogInformation("Using rating key {RatingKey} to get collection items", ratingKey);
+                
+                // Try different URL patterns with the rating key
+                string[] urlPatterns = new[]
+                {
+                    $"{_baseUrl}/library/metadata/{ratingKey}/children",
+                    $"{_baseUrl}/library/collections/{ratingKey}/children",
+                    $"{_baseUrl}/library/collections/{ratingKey}/all",
+                    $"{_baseUrl}/library/collections/{ratingKey}/items"
+                };
+                
+                foreach (var url in urlPatterns)
+                {
+                    _logger.LogInformation("Trying URL with rating key: {Url}", url);
+                    if (await TryGetCollectionItems(client, url, items).ConfigureAwait(false))
+                    {
+                        return items;
+                    }
+                }
+            }
+            
+            // If we still don't have items, try the original URL patterns
             List<string> urlsToTry = new List<string>();
             
             // Format 1: If the key is a full path like "/library/collections/7764/children"
@@ -296,36 +417,30 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                 if (idMatch.Success)
                 {
                     var id = idMatch.Groups[1].Value;
-                    _logger.LogInformation("Extracted collection ID: {Id}", id);
                     
                     urlsToTry.Add($"{_baseUrl}/library/collections/{id}/items");
                     urlsToTry.Add($"{_baseUrl}/library/collections/{id}/all");
                     urlsToTry.Add($"{_baseUrl}/library/collections/{id}/children");
                     urlsToTry.Add($"{_baseUrl}/library/collections/{id}/metadata");
+                    urlsToTry.Add($"{_baseUrl}/library/metadata/{id}/children");
                 }
             }
             // Format 2: Extract ID from key if available
-            else
+            else if (!string.IsNullOrEmpty(collectionId))
             {
-                var match = System.Text.RegularExpressions.Regex.Match(collectionKey, @"/(\d+)");
-                if (match.Success)
-                {
-                    var id = match.Groups[1].Value;
-                    _logger.LogInformation("Extracted ID from key: {Id}", id);
-                    
-                    urlsToTry.Add($"{_baseUrl}/library/collections/{id}/items");
-                    urlsToTry.Add($"{_baseUrl}/library/collections/{id}/all");
-                    urlsToTry.Add($"{_baseUrl}/library/collections/{id}/children");
-                    urlsToTry.Add($"{_baseUrl}/library/collections/{id}/metadata");
-                }
-                
-                // Try with the raw collection key
-                urlsToTry.Add($"{_baseUrl}/library/collections/{collectionKey}/items");
-                urlsToTry.Add($"{_baseUrl}/library/collections/{collectionKey}/all");
-                urlsToTry.Add($"{_baseUrl}/library/collections/{collectionKey}/children");
-                urlsToTry.Add($"{_baseUrl}/library/collections/{collectionKey}/metadata");
-                urlsToTry.Add($"{_baseUrl}{collectionKey}");  // Use the key directly
+                urlsToTry.Add($"{_baseUrl}/library/collections/{collectionId}/items");
+                urlsToTry.Add($"{_baseUrl}/library/collections/{collectionId}/all");
+                urlsToTry.Add($"{_baseUrl}/library/collections/{collectionId}/children");
+                urlsToTry.Add($"{_baseUrl}/library/collections/{collectionId}/metadata");
+                urlsToTry.Add($"{_baseUrl}/library/metadata/{collectionId}/children");
             }
+            
+            // Try with the raw collection key
+            urlsToTry.Add($"{_baseUrl}/library/collections/{collectionKey}/items");
+            urlsToTry.Add($"{_baseUrl}/library/collections/{collectionKey}/all");
+            urlsToTry.Add($"{_baseUrl}/library/collections/{collectionKey}/children");
+            urlsToTry.Add($"{_baseUrl}/library/collections/{collectionKey}/metadata");
+            urlsToTry.Add($"{_baseUrl}{collectionKey}");  // Use the key directly
             
             // Try all URLs
             foreach (var url in urlsToTry)
