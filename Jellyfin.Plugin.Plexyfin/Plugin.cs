@@ -106,13 +106,14 @@ namespace Jellyfin.Plugin.Plexyfin
                 _logger.LogInformation("Creating controller with provider manager and file system dependencies");
                 
                 // Create a controller instance to reuse the sync logic
+                var controllerLogger = new PlexifinControllerLogger(_logger);
                 var controller = new PlexifinController(
                     _libraryManager,
                     _collectionManager,
                     _httpClientFactory,
                     _providerManager,
                     _fileSystem,
-                    (ILogger<PlexifinController>)_logger);
+                    controllerLogger);
 
                 // Call the sync method
                 await controller.SyncFromPlexAsync().ConfigureAwait(false);
