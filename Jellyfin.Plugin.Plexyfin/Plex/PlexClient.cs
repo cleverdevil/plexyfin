@@ -297,11 +297,11 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                 collectionId = collectionKey;
             }
             
-            // First try: Get the collection details to find the ratingKey
-            string ratingKey = string.Empty;
-            
-            // Try to get the collection details from each library section
+            // IMPORTANT: We've discovered that there are duplicate collections with the same name
+            // but in different libraries. We need to check all libraries to find the correct one.
             var sections = await GetLibrarySections().ConfigureAwait(false);
+            
+            // First, try to find the collection in each library section
             foreach (var section in sections)
             {
                 try
@@ -342,17 +342,25 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                         var key = collectionElement.Attribute("key")?.Value ?? string.Empty;
                         var title = collectionElement.Attribute("title")?.Value ?? string.Empty;
                         var currentRatingKey = collectionElement.Attribute("ratingKey")?.Value ?? string.Empty;
+                        var childCount = int.TryParse(collectionElement.Attribute("childCount")?.Value, out var count) ? count : 0;
                         
-                        _logger.LogDebug("Collection: {Title}, Key: {Key}, RatingKey: {RatingKey}", 
-                            title, key, currentRatingKey);
+                        _logger.LogDebug("Collection: {Title}, Key: {Key}, RatingKey: {RatingKey}, ChildCount: {ChildCount}", 
+                            title, key, currentRatingKey, childCount);
                         
                         // Check if this collection matches our target
                         if (key.Contains(collectionId) || 
                             (currentRatingKey == collectionId) || 
                             key.EndsWith(collectionKey))
                         {
-                            _logger.LogInformation("Found matching collection: {Title} with key {Key}", title, key);
-                            ratingKey = currentRatingKey;
+                            _logger.LogInformation("Found matching collection: {Title} with key {Key}, ChildCount: {ChildCount}", 
+                                title, key, childCount);
+                            
+                            // If the collection has no items according to Plex, return an empty list
+                            if (childCount == 0)
+                            {
+                                _logger.LogInformation("Collection {Title} has no items according to Plex", title);
+                                return new List<PlexItem>();
+                            }
                             
                             // Try to get the items directly from this element's key
                             var directUrl = $"{_baseUrl}{key}";
@@ -363,43 +371,51 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                                 return items;
                             }
                             
-                            break;
+                            // If we found a match but couldn't get items, try with the section ID
+                            var sectionId = section.Key;
+                            _logger.LogInformation("Trying to get collection items using section ID: {SectionId}", sectionId);
+                            
+                            // Try with the section ID and collection rating key
+                            var alternativeUrl = $"{_baseUrl}/library/sections/{sectionId}/collections/{currentRatingKey}";
+                            _logger.LogInformation("Trying alternative URL: {Url}", alternativeUrl);
+                            
+                            if (await TryGetCollectionItems(client, alternativeUrl, items).ConfigureAwait(false))
+                            {
+                                return items;
+                            }
+                            
+                            // Try with the section ID and collection rating key + children
+                            alternativeUrl = $"{_baseUrl}/library/sections/{sectionId}/collections/{currentRatingKey}/children";
+                            _logger.LogInformation("Trying alternative URL: {Url}", alternativeUrl);
+                            
+                            if (await TryGetCollectionItems(client, alternativeUrl, items).ConfigureAwait(false))
+                            {
+                                return items;
+                            }
+                            
+                            // Try with the section ID and collection rating key + all
+                            alternativeUrl = $"{_baseUrl}/library/sections/{sectionId}/collections/{currentRatingKey}/all";
+                            _logger.LogInformation("Trying alternative URL: {Url}", alternativeUrl);
+                            
+                            if (await TryGetCollectionItems(client, alternativeUrl, items).ConfigureAwait(false))
+                            {
+                                return items;
+                            }
+                            
+                            // Try with the section ID and collection rating key + items
+                            alternativeUrl = $"{_baseUrl}/library/sections/{sectionId}/collections/{currentRatingKey}/items";
+                            _logger.LogInformation("Trying alternative URL: {Url}", alternativeUrl);
+                            
+                            if (await TryGetCollectionItems(client, alternativeUrl, items).ConfigureAwait(false))
+                            {
+                                return items;
+                            }
                         }
-                    }
-                    
-                    // If we found the rating key, we can try to get the items
-                    if (!string.IsNullOrEmpty(ratingKey))
-                    {
-                        break;
                     }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Error checking section {SectionId} for collection", section.Key);
-                }
-            }
-            
-            // If we found a rating key, try to get the items using that
-            if (!string.IsNullOrEmpty(ratingKey))
-            {
-                _logger.LogInformation("Using rating key {RatingKey} to get collection items", ratingKey);
-                
-                // Try different URL patterns with the rating key
-                string[] urlPatterns = new[]
-                {
-                    $"{_baseUrl}/library/metadata/{ratingKey}/children",
-                    $"{_baseUrl}/library/collections/{ratingKey}/children",
-                    $"{_baseUrl}/library/collections/{ratingKey}/all",
-                    $"{_baseUrl}/library/collections/{ratingKey}/items"
-                };
-                
-                foreach (var url in urlPatterns)
-                {
-                    _logger.LogInformation("Trying URL with rating key: {Url}", url);
-                    if (await TryGetCollectionItems(client, url, items).ConfigureAwait(false))
-                    {
-                        return items;
-                    }
                 }
             }
             
