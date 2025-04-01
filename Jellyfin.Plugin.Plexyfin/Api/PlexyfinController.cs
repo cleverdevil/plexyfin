@@ -74,7 +74,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             _userManager = userManager; // Can be null
             _userDataManager = userDataManager; // Can be null
         }
-        
+
         /// <summary>
         /// Internal method for syncing from Plex, used by both the API endpoint and scheduled task.
         /// </summary>
@@ -150,6 +150,211 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             }
             
             return result;
+        }
+
+        /// <summary>
+        /// Deletes all existing collections in Jellyfin.
+        /// </summary>
+        /// <returns>The number of collections deleted.</returns>
+        private async Task<int> DeleteExistingCollectionsAsync()
+        {
+            var collections = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
+            {
+                IncludeItemTypes = new[] { BaseItemKind.BoxSet }
+            });
+            
+            int count = 0;
+            foreach (var collection in collections)
+            {
+                await _collectionManager.DeleteCollectionAsync(collection.Id).ConfigureAwait(false);
+                count++;
+            }
+            
+            return count;
+        }
+
+        /// <summary>
+        /// Syncs collections from Plex to Jellyfin.
+        /// </summary>
+        /// <param name="plexClient">The Plex client.</param>
+        /// <returns>A tuple containing the number of collections added and updated.</returns>
+        private async Task<(int added, int updated)> SyncCollectionsFromPlexAsync(PlexClient plexClient)
+        {
+            int added = 0;
+            int updated = 0;
+            
+            // Get selected libraries from configuration
+            var config = Plugin.Instance!.Configuration;
+            var selectedLibraries = config.SelectedLibraries ?? new List<string>();
+            
+            // Get collections from Plex
+            foreach (var libraryId in selectedLibraries)
+            {
+                var collections = await plexClient.GetCollections(libraryId).ConfigureAwait(false);
+                
+                foreach (var collection in collections)
+                {
+                    // Check if collection already exists in Jellyfin
+                    var existingCollection = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
+                    {
+                        Name = collection.Title,
+                        IncludeItemTypes = new[] { BaseItemKind.BoxSet }
+                    }).FirstOrDefault();
+                    
+                    // Get collection items from Plex
+                    var plexItems = await plexClient.GetCollectionItems(collection.Id).ConfigureAwait(false);
+                    
+                    // Find matching items in Jellyfin
+                    var jellyfinItems = new List<Guid>();
+                    foreach (var plexItem in plexItems)
+                    {
+                        // Try to find by name
+                        var jellyfinItem = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
+                        {
+                            Name = plexItem.Title,
+                            IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series }
+                        }).FirstOrDefault();
+                        
+                        if (jellyfinItem != null)
+                        {
+                            jellyfinItems.Add(jellyfinItem.Id);
+                        }
+                    }
+                    
+                    if (existingCollection == null)
+                    {
+                        // Create new collection
+                        var collectionId = await _collectionManager.CreateCollectionAsync(new MediaBrowser.Controller.Collections.CollectionCreationOptions
+                        {
+                            Name = collection.Title,
+                            ItemIdList = jellyfinItems.ToArray(),
+                            IsLocked = true
+                        }).ConfigureAwait(false);
+                        
+                        // Update collection metadata
+                        var newCollection = _libraryManager.GetItemById(collectionId);
+                        if (newCollection != null)
+                        {
+                            // Set overview
+                            newCollection.Overview = collection.Summary;
+                            
+                            // Save changes
+                            _libraryManager.UpdateItem(newCollection, newCollection.GetParent(), ItemUpdateType.MetadataEdit);
+                            
+                            // Sync artwork if enabled
+                            if (config.SyncArtwork)
+                            {
+                                await SyncCollectionArtworkAsync(newCollection, collection, plexClient).ConfigureAwait(false);
+                            }
+                        }
+                        
+                        added++;
+                    }
+                    else
+                    {
+                        // Update existing collection
+                        existingCollection.Overview = collection.Summary;
+                        
+                        // Update items
+                        await _collectionManager.AddToCollectionAsync(existingCollection.Id, jellyfinItems.ToArray()).ConfigureAwait(false);
+                        
+                        // Save changes
+                        _libraryManager.UpdateItem(existingCollection, existingCollection.GetParent(), ItemUpdateType.MetadataEdit);
+                        
+                        // Sync artwork if enabled
+                        if (config.SyncArtwork)
+                        {
+                            await SyncCollectionArtworkAsync(existingCollection, collection, plexClient).ConfigureAwait(false);
+                        }
+                        
+                        updated++;
+                    }
+                }
+            }
+            
+            return (added, updated);
+        }
+
+        /// <summary>
+        /// Syncs artwork from a Plex collection to a Jellyfin collection.
+        /// </summary>
+        /// <param name="jellyfinCollection">The Jellyfin collection.</param>
+        /// <param name="plexCollection">The Plex collection.</param>
+        /// <param name="plexClient">The Plex client.</param>
+        /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+        private async Task SyncCollectionArtworkAsync(BaseItem jellyfinCollection, PlexCollection plexCollection, PlexClient plexClient)
+        {
+            // This is a simplified implementation - in a real implementation, we would:
+            // 1. Download the artwork from Plex
+            // 2. Save it to the appropriate location for Jellyfin
+            // 3. Refresh the metadata for the collection
+            
+            _logger.LogInformation("Syncing artwork for collection: {CollectionName}", jellyfinCollection.Name);
+            
+            // For now, just log that we would sync the artwork
+            if (!string.IsNullOrEmpty(plexCollection.ThumbUrl))
+            {
+                _logger.LogInformation("Would sync thumbnail: {ThumbUrl}", plexCollection.ThumbUrl);
+            }
+            
+            if (!string.IsNullOrEmpty(plexCollection.ArtUrl))
+            {
+                _logger.LogInformation("Would sync art: {ArtUrl}", plexCollection.ArtUrl);
+            }
+            
+            await Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// API endpoint for syncing from Plex.
+        /// </summary>
+        /// <returns>The result of the sync operation.</returns>
+        [HttpPost("sync")]
+        [Authorize(Policy = "RequiresElevation")]
+        public async Task<ActionResult<SyncResult>> SyncFromPlexEndpoint()
+        {
+            try
+            {
+                var result = await SyncFromPlexAsync().ConfigureAwait(false);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error syncing from Plex");
+                return StatusCode(500, new { Error = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// API endpoint for testing the Plex connection.
+        /// </summary>
+        /// <param name="url">The Plex server URL.</param>
+        /// <param name="token">The Plex API token.</param>
+        /// <returns>The available libraries.</returns>
+        [HttpGet("test-connection")]
+        [Authorize(Policy = "RequiresElevation")]
+        public async Task<ActionResult<IEnumerable<PlexLibrary>>> TestConnection(
+            [Required] string url,
+            [Required] string token)
+        {
+            try
+            {
+                var plexClient = new PlexClient(_httpClientFactory, _logger, url, token);
+                var libraries = await plexClient.GetLibraries().ConfigureAwait(false);
+                
+                // Save the URL and token to the configuration
+                var config = Plugin.Instance!.Configuration;
+                config.PlexServerUrl = url;
+                config.PlexApiToken = token;
+                Plugin.Instance.SaveConfiguration();
+                
+                return Ok(libraries);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error testing Plex connection");
+                return StatusCode(500, new { Error = ex.Message });
+            }
         }
     }
 }
