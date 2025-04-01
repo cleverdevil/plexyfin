@@ -1,3 +1,11 @@
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using System.Net.Http;
+
+namespace Jellyfin.Plugin.Plexyfin.Plex
+{
     /// <summary>
     /// Client for interacting with Plex Media Server.
     /// </summary>
@@ -111,3 +119,4 @@
         /// </summary>
         public string Type { get; set; } = string.Empty;
     }
+}
