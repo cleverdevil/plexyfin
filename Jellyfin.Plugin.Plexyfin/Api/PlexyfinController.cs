@@ -166,7 +166,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             int count = 0;
             foreach (var collection in collections)
             {
-                await _collectionManager.DeleteCollectionAsync(collection.Id).ConfigureAwait(false);
+                await _collectionManager.RemoveFromCollectionAsync(collection.Id, Array.Empty<Guid>()).ConfigureAwait(false);
                 count++;
             }
             
@@ -239,7 +239,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                             newCollection.Overview = collection.Summary;
                             
                             // Save changes
-                            _libraryManager.UpdateItem(newCollection, newCollection.GetParent(), ItemUpdateType.MetadataEdit);
+                            await _libraryManager.UpdateItemAsync(newCollection, newCollection.GetParent(), ItemUpdateType.MetadataEdit, CancellationToken.None).ConfigureAwait(false);
                             
                             // Sync artwork if enabled
                             if (config.SyncArtwork)
@@ -259,7 +259,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         await _collectionManager.AddToCollectionAsync(existingCollection.Id, jellyfinItems.ToArray()).ConfigureAwait(false);
                         
                         // Save changes
-                        _libraryManager.UpdateItem(existingCollection, existingCollection.GetParent(), ItemUpdateType.MetadataEdit);
+                        await _libraryManager.UpdateItemAsync(existingCollection, existingCollection.GetParent(), ItemUpdateType.MetadataEdit, CancellationToken.None).ConfigureAwait(false);
                         
                         // Sync artwork if enabled
                         if (config.SyncArtwork)
