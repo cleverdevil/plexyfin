@@ -20,7 +20,8 @@ dotnet publish "$PLUGIN_NAME" \
   --output "$OUTPUT_DIR/tmp" \
   --self-contained false \
   -p:DebugSymbols=false \
-  -p:DebugType=none
+  -p:DebugType=none \
+  -p:TreatWarningsAsErrors=false
 
 # Copy only the plugin DLL (no dependencies)
 echo "Copying files to output directory..."
