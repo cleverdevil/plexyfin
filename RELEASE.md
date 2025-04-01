@@ -21,15 +21,15 @@ Current version: **0.2.1.0**
 
 2. Create and push a tag:
    ```bash
-   git tag -a v0.2.0.0 -m "Release v0.2.0.0"
-   git push origin v0.2.0.0
+   git tag -a v0.2.1.0 -m "Release v0.2.1.0"
+   git push origin v0.2.1.0
    ```
 
 3. Create a new release on GitHub:
    - Go to https://github.com/cleverdevil/plexyfin/releases
    - Click "Draft a new release"
    - Select the tag you just created
-   - Title: "Plexyfin v0.2.0.0"
+   - Title: "Plexyfin v0.2.1.0"
    - Add release notes describing changes
    - Publish the release
 

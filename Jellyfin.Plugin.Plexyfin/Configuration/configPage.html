@@ -133,6 +133,30 @@
                     </div>
                     
                     <div class="verticalSection">
+                        <h3 class="sectionTitle">Advanced Options</h3>
+                        
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" id="EnableDebugMode" />
+                                <span>Enable Debug Mode</span>
+                            </label>
+                        </div>
+                        <div class="fieldDescription" style="margin-left: 25px; font-size: 90%; margin-bottom: 15px;">
+                            When enabled, debug copies of images will be saved and more verbose logging will occur.
+                            This can help with troubleshooting but uses more disk space.
+                        </div>
+                        
+                        <div class="inputContainer">
+                            <label for="MaxUrlPatternAttempts">Max URL Pattern Attempts:</label>
+                            <input id="MaxUrlPatternAttempts" name="MaxUrlPatternAttempts" type="number" min="1" max="10" step="1" />
+                            <div class="fieldDescription" style="font-size: 90%; margin-bottom: 15px;">
+                                Maximum number of URL patterns to try when fetching collection items. Lower values improve performance
+                                but may reduce compatibility with some Plex servers. Default: 3
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="verticalSection">
                         <h3 class="sectionTitle">Save & Sync</h3>
                         <div class="fieldDescription" style="font-size: 90%; margin-bottom: 15px;">
                             Save your configuration and start a manual sync from Plex to Jellyfin.
@@ -452,6 +476,7 @@
                     config.DeleteBeforeSync = document.querySelector('#DeleteBeforeSync').checked;
                     config.SyncArtwork = document.querySelector('#SyncArtwork').checked;
                     config.EnableScheduledSync = document.querySelector('#EnableScheduledSync').checked;
+                    config.EnableDebugMode = document.querySelector('#EnableDebugMode').checked;
                     
                     // Parse the sync interval with validation
                     var syncInterval = parseInt(document.querySelector('#SyncIntervalHours').value);
@@ -461,6 +486,15 @@
                         syncInterval = 168; // Cap at 168 hours (1 week)
                     }
                     config.SyncIntervalHours = syncInterval;
+                    
+                    // Parse the max URL pattern attempts
+                    var maxAttempts = parseInt(document.querySelector('#MaxUrlPatternAttempts').value);
+                    if (isNaN(maxAttempts) || maxAttempts < 1) {
+                        maxAttempts = 3; // Default to 3 if invalid
+                    } else if (maxAttempts > 10) {
+                        maxAttempts = 10; // Cap at 10
+                    }
+                    config.MaxUrlPatternAttempts = maxAttempts;
                     
                     // Make sure selected libraries are included
                     config.SelectedLibraries = PlexyfindConfig.selectedLibraryIds;
@@ -485,6 +519,8 @@
                 document.querySelector('#SyncArtwork').checked = config.SyncArtwork;
                 document.querySelector('#EnableScheduledSync').checked = config.EnableScheduledSync;
                 document.querySelector('#SyncIntervalHours').value = config.SyncIntervalHours || 24;
+                document.querySelector('#EnableDebugMode').checked = config.EnableDebugMode || false;
+                document.querySelector('#MaxUrlPatternAttempts').value = config.MaxUrlPatternAttempts || 3;
                 
                 // Store selected libraries
                 PlexyfindConfig.selectedLibraryIds = config.SelectedLibraries || [];
