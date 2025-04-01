@@ -99,7 +99,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         if (plexWatchState.Watched && !jellyfinWatched)
                         {
                             _logger.LogInformation("Marking item as watched in Jellyfin: {ItemName}", item.Name);
-                            _userDataManager.MarkPlayed(item, user);
+                            _userDataManager.SaveUserData(user.Id, item, new UserItemData { Played = true }, UserDataSaveReason.TogglePlayed, CancellationToken.None);
                         }
                         else if (!plexWatchState.Watched && jellyfinWatched)
                         {
@@ -107,7 +107,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                             {
                                 // Only mark as unwatched if we're doing one-way sync from Plex to Jellyfin
                                 _logger.LogInformation("Marking item as unwatched in Jellyfin: {ItemName}", item.Name);
-                                _userDataManager.MarkUnplayed(item, user);
+                                _userDataManager.SaveUserData(user.Id, item, new UserItemData { Played = false }, UserDataSaveReason.TogglePlayed, CancellationToken.None);
                             }
                         }
                         else if (!plexWatchState.Watched && !jellyfinWatched && plexWatchState.PlaybackPosition > 0)
@@ -119,7 +119,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                     item.Name, plexWatchState.PlaybackPosition);
                                     
                                 jellyfinUserData.PlaybackPositionTicks = (long)(plexWatchState.PlaybackPosition * 10000000);
-                                _userDataManager.SaveUserData(user.Id, item, jellyfinUserData, ItemUpdateType.MetadataEdit, CancellationToken.None);
+                                _userDataManager.SaveUserData(user.Id, item, jellyfinUserData, UserDataSaveReason.TogglePlayed, CancellationToken.None);
                             }
                         }
                     }
@@ -165,7 +165,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                             if (!jellyfinWatched)
                             {
                                 _logger.LogInformation("Bidirectional sync: Marking item as watched in Jellyfin: {ItemName}", item.Name);
-                                _userDataManager.MarkPlayed(item, user);
+                                _userDataManager.SaveUserData(user.Id, item, new UserItemData { Played = true }, UserDataSaveReason.TogglePlayed, CancellationToken.None);
                             }
                             
                             if (!plexWatchState.Watched)
@@ -188,7 +188,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                         item.Name, maxPosition);
                                         
                                     jellyfinUserData.PlaybackPositionTicks = (long)(maxPosition * 10000000);
-                                    _userDataManager.SaveUserData(user.Id, item, jellyfinUserData, ItemUpdateType.MetadataEdit, CancellationToken.None);
+                                    _userDataManager.SaveUserData(user.Id, item, jellyfinUserData, UserDataSaveReason.TogglePlayed, CancellationToken.None);
                                 }
                                 
                                 // Update Plex if needed

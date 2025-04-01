@@ -227,7 +227,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         var collectionId = await _collectionManager.CreateCollectionAsync(new MediaBrowser.Controller.Collections.CollectionCreationOptions
                         {
                             Name = collection.Title,
-                            ItemIdList = jellyfinItems.ToArray(),
+                            ItemIdList = jellyfinItems.Select(id => id.ToString()).ToList(),
                             IsLocked = true
                         }).ConfigureAwait(false);
                         
