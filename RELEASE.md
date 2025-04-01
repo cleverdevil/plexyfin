@@ -11,7 +11,7 @@ Plexyfin follows the Jellyfin plugin versioning scheme of `Major.Minor.Build.Rev
 - **Build**: Bug fixes and minor improvements
 - **Revision**: Small patches and hotfixes
 
-Current version: **0.2.0.0**
+Current version: **0.2.1.0**
 
 ## Creating a New Release
 
