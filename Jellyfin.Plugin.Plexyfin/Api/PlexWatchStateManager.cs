@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
-using System.Xml.Linq;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
@@ -11,7 +10,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.Plexyfin.Api
 {
     /// <summary>
-    /// Manages watch state synchronization between Plex and Jellyfin.
+    /// Manager for synchronizing watch states between Plex and Jellyfin.
     /// </summary>
     public class PlexWatchStateManager
     {
@@ -19,8 +18,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IUserManager _userManager;
         private readonly IUserDataManager _userDataManager;
-        private readonly PlexApiClient _plexApiClient;
-
+        
         /// <summary>
         /// Initializes a new instance of the <see cref="PlexWatchStateManager"/> class.
         /// </summary>
@@ -38,236 +36,185 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             _httpClientFactory = httpClientFactory;
             _userManager = userManager;
             _userDataManager = userDataManager;
-            _plexApiClient = new PlexApiClient(httpClientFactory, logger);
         }
-
+        
         /// <summary>
-        /// Synchronizes watch state between Plex and Jellyfin based on the configured direction.
+        /// Synchronizes watch states between Plex and Jellyfin.
         /// </summary>
-        /// <param name="jellyfinItems">List of Jellyfin items to synchronize.</param>
-        /// <param name="plexServerUrl">Plex server URL.</param>
-        /// <param name="plexApiToken">Plex API token.</param>
-        /// <param name="syncDirection">Direction of synchronization.</param>
-        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <param name="items">The Jellyfin items to synchronize.</param>
+        /// <param name="plexServerUrl">The Plex server URL.</param>
+        /// <param name="plexToken">The Plex API token.</param>
+        /// <param name="direction">The direction of synchronization.</param>
+        /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
         public async Task SyncWatchStateAsync(
-            IEnumerable<BaseItem> jellyfinItems,
+            IEnumerable<BaseItem> items,
             string plexServerUrl,
-            string plexApiToken,
-            string syncDirection)
+            string plexToken,
+            string direction)
         {
+            _logger.LogInformation("Starting watch state synchronization with direction: {Direction}", direction);
+            
+            // Get the default user
+            var user = _userManager.Users.FirstOrDefault();
+            if (user == null)
+            {
+                _logger.LogWarning("No users found in Jellyfin, cannot sync watch states");
+                return;
+            }
+            
+            var plexApiClient = new PlexApiClient(_httpClientFactory, _logger);
+            
+            foreach (var item in items)
+            {
+                try
+                {
+                    // Get the Plex ID from the Jellyfin item
+                    var plexId = item.ProviderIds.TryGetValue("Plex", out var id) ? id : null;
+                    
+                    if (string.IsNullOrEmpty(plexId))
+                    {
+                        // Skip items without a Plex ID
+                        continue;
+                    }
+                    
+                    // Get the Jellyfin watch state
+                    var jellyfinUserData = _userDataManager.GetUserData(user, item);
+                    bool jellyfinWatched = jellyfinUserData.Played;
+                    double jellyfinPlaybackPosition = (double)jellyfinUserData.PlaybackPositionTicks / 10000000; // Convert ticks to seconds
+                    
+                    // Get the Plex watch state
+                    var plexWatchState = await plexApiClient.GetItemWatchStateAsync(plexId, plexServerUrl, plexToken);
+                    
+                    if (plexWatchState == null)
+                    {
+                        _logger.LogWarning("Could not get watch state from Plex for item {ItemName} ({ItemId})", item.Name, item.Id);
+                        continue;
+                    }
+                    
+                    if (direction == "PlexToJellyfin" || direction == "Bidirectional")
+                    {
+                        // Update Jellyfin watch state from Plex
+                        if (plexWatchState.Watched && !jellyfinWatched)
+                        {
+                            _logger.LogInformation("Marking item as watched in Jellyfin: {ItemName}", item.Name);
+                            _userDataManager.MarkPlayed(item, user, DateTime.UtcNow, true);
+                        }
+                        else if (!plexWatchState.Watched && jellyfinWatched)
+                        {
+                            if (direction == "PlexToJellyfin")
+                            {
+                                // Only mark as unwatched if we're doing one-way sync from Plex to Jellyfin
+                                _logger.LogInformation("Marking item as unwatched in Jellyfin: {ItemName}", item.Name);
+                                _userDataManager.MarkUnplayed(item, user, DateTime.UtcNow);
+                            }
+                        }
+                        else if (!plexWatchState.Watched && !jellyfinWatched && plexWatchState.PlaybackPosition > 0)
+                        {
+                            // Update playback position if the item is in progress
+                            if (Math.Abs(plexWatchState.PlaybackPosition - jellyfinPlaybackPosition) > 10) // Only update if difference is more than 10 seconds
+                            {
+                                _logger.LogInformation("Updating playback position in Jellyfin for {ItemName}: {Position} seconds", 
+                                    item.Name, plexWatchState.PlaybackPosition);
+                                    
+                                jellyfinUserData.PlaybackPositionTicks = (long)(plexWatchState.PlaybackPosition * 10000000);
+                                _userDataManager.SaveUserData(user.Id, item, jellyfinUserData, UserDataSaveReason.TogglePlayed, CancellationToken.None);
+                            }
+                        }
+                    }
+                    
+                    if (direction == "JellyfinToPlex" || direction == "Bidirectional")
+                    {
+                        // Update Plex watch state from Jellyfin
+                        if (jellyfinWatched && !plexWatchState.Watched)
+                        {
+                            _logger.LogInformation("Marking item as watched in Plex: {ItemName}", item.Name);
+                            await plexApiClient.UpdateItemWatchStateAsync(plexId, plexServerUrl, plexToken, true);
+                        }
+                        else if (!jellyfinWatched && plexWatchState.Watched)
+                        {
+                            if (direction == "JellyfinToPlex")
+                            {
+                                // Only mark as unwatched if we're doing one-way sync from Jellyfin to Plex
+                                _logger.LogInformation("Marking item as unwatched in Plex: {ItemName}", item.Name);
+                                await plexApiClient.UpdateItemWatchStateAsync(plexId, plexServerUrl, plexToken, false);
+                            }
+                        }
+                        else if (!jellyfinWatched && !plexWatchState.Watched && jellyfinPlaybackPosition > 0)
+                        {
+                            // Update playback position if the item is in progress
+                            if (Math.Abs(jellyfinPlaybackPosition - plexWatchState.PlaybackPosition) > 10) // Only update if difference is more than 10 seconds
+                            {
+                                _logger.LogInformation("Updating playback position in Plex for {ItemName}: {Position} seconds", 
+                                    item.Name, jellyfinPlaybackPosition);
+                                    
+                                await plexApiClient.UpdateItemWatchStateAsync(plexId, plexServerUrl, plexToken, false, jellyfinPlaybackPosition);
+                            }
+                        }
+                    }
+                    
+                    if (direction == "Bidirectional")
+                    {
+                        // For bidirectional sync, if either is watched, both should be watched
+                        bool shouldBeWatched = jellyfinWatched || plexWatchState.Watched;
+                        
+                        if (shouldBeWatched)
+                        {
+                            // Make sure both are marked as watched
+                            if (!jellyfinWatched)
+                            {
+                                _logger.LogInformation("Bidirectional sync: Marking item as watched in Jellyfin: {ItemName}", item.Name);
+                                _userDataManager.MarkPlayed(item, user, DateTime.UtcNow, true);
+                            }
+                            
+                            if (!plexWatchState.Watched)
+                            {
+                                _logger.LogInformation("Bidirectional sync: Marking item as watched in Plex: {ItemName}", item.Name);
+                                await plexApiClient.UpdateItemWatchStateAsync(plexId, plexServerUrl, plexToken, true);
+                            }
+                        }
+                        else
+                        {
+                            // For in-progress items, use the furthest playback position
+                            double maxPosition = Math.Max(jellyfinPlaybackPosition, plexWatchState.PlaybackPosition);
+                            
+                            if (maxPosition > 0)
+                            {
+                                // Update Jellyfin if needed
+                                if (Math.Abs(jellyfinPlaybackPosition - maxPosition) > 10)
+                                {
+                                    _logger.LogInformation("Bidirectional sync: Updating playback position in Jellyfin for {ItemName}: {Position} seconds", 
+                                        item.Name, maxPosition);
+                                        
+                                    jellyfinUserData.PlaybackPositionTicks = (long)(maxPosition * 10000000);
+                                    _userDataManager.SaveUserData(user.Id, item, jellyfinUserData, UserDataSaveReason.TogglePlayed, CancellationToken.None);
+                                }
+                                
+                                // Update Plex if needed
+                                if (Math.Abs(plexWatchState.PlaybackPosition - maxPosition) > 10)
+                                {
+                                    _logger.LogInformation("Bidirectional sync: Updating playback position in Plex for {ItemName}: {Position} seconds", 
+                                        item.Name, maxPosition);
+                                        
+                                    await plexApiClient.UpdateItemWatchStateAsync(plexId, plexServerUrl, plexToken, false, maxPosition);
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error syncing watch state for item {ItemName} ({ItemId})", item.Name, item.Id);
+                }
+            }
+            
             try
             {
-                _logger.LogInformation("Starting watch state synchronization in {Direction} mode", syncDirection);
-
-                // Get the default Jellyfin user
-                var jellyfinUser = _userManager.Users.FirstOrDefault();
-                if (jellyfinUser == null)
-                {
-                    _logger.LogWarning("No Jellyfin users found for watch state sync");
-                    return;
-                }
-
-                // Initialize counters for reporting
-                int updatedInJellyfin = 0;
-                int updatedInPlex = 0;
-                int errors = 0;
-
-                foreach (var item in jellyfinItems)
-                {
-                    try
-                    {
-                        // Get the Jellyfin item's external ID that matches Plex's rating key
-                        var plexId = item.GetProviderId("Plex");
-                        if (string.IsNullOrEmpty(plexId))
-                        {
-                            // Skip items without Plex IDs
-                            continue;
-                        }
-
-                        // Get the current watch state in Jellyfin
-                        var jellyfinUserData = _userDataManager.GetUserData(jellyfinUser, item);
-                        bool jellyfinWatched = jellyfinUserData.Played;
-                        double jellyfinPlaybackPosition = jellyfinUserData.PlaybackPositionTicks / 10000000.0; // Convert ticks to seconds
-
-                        // Get watch state from Plex
-                        var plexWatchState = await _plexApiClient.GetItemWatchStateAsync(plexServerUrl, plexApiToken, plexId);
-                        if (plexWatchState == null)
-                        {
-                            _logger.LogWarning("Could not retrieve Plex watch state for {ItemName}, skipping", item.Name);
-                            continue;
-                        }
-
-                        if (syncDirection == "Bidirectional")
-                        {
-                            // For bidirectional sync, implement "watched in either = watched everywhere" approach
-                            bool watchedInEither = plexWatchState.Watched || jellyfinWatched;
-                            
-                            // Update Jellyfin if needed
-                            if (watchedInEither != jellyfinWatched)
-                            {
-                                if (watchedInEither)
-                                {
-                                    _userDataManager.MarkPlayed(item, jellyfinUser, DateTime.UtcNow);
-                                    _logger.LogInformation("Bidirectional sync: Marked {ItemName} as watched in Jellyfin", item.Name);
-                                    updatedInJellyfin++;
-                                }
-                            }
-                            
-                            // Update Plex if needed
-                            if (watchedInEither != plexWatchState.Watched)
-                            {
-                                bool success = await _plexApiClient.UpdateItemWatchStateAsync(
-                                    plexServerUrl, 
-                                    plexApiToken, 
-                                    plexId, 
-                                    watchedInEither, 
-                                    watchedInEither ? 0 : Math.Max(jellyfinPlaybackPosition, plexWatchState.PlaybackPosition));
-                                    
-                                if (success)
-                                {
-                                    _logger.LogInformation("Bidirectional sync: Marked {ItemName} as watched in Plex", item.Name);
-                                    updatedInPlex++;
-                                }
-                            }
-                            
-                            // For playback position: use the furthest along position if not marked as watched
-                            if (!watchedInEither)
-                            {
-                                double furthestPosition = Math.Max(jellyfinPlaybackPosition, plexWatchState.PlaybackPosition);
-                                
-                                // Update Jellyfin position if needed
-                                if (Math.Abs(jellyfinPlaybackPosition - furthestPosition) > 10)
-                                {
-                                    _userDataManager.SaveUserData(
-                                        jellyfinUser.Id,
-                                        item,
-                                        new UserItemData
-                                        {
-                                            PlaybackPositionTicks = Convert.ToInt64(furthestPosition * 10000000),
-                                            Played = jellyfinUserData.Played,
-                                            PlayCount = jellyfinUserData.PlayCount,
-                                            IsFavorite = jellyfinUserData.IsFavorite,
-                                            Rating = jellyfinUserData.Rating,
-                                            LastPlayedDate = jellyfinUserData.LastPlayedDate
-                                        },
-                                        UserDataSaveReason.TogglePlayed);
-                                        
-                                    _logger.LogInformation("Bidirectional sync: Updated playback position for {ItemName} in Jellyfin to {Position} seconds", 
-                                        item.Name, furthestPosition);
-                                    updatedInJellyfin++;
-                                }
-                                
-                                // Update Plex position if needed
-                                if (Math.Abs(plexWatchState.PlaybackPosition - furthestPosition) > 10)
-                                {
-                                    bool success = await _plexApiClient.UpdateItemWatchStateAsync(
-                                        plexServerUrl, 
-                                        plexApiToken, 
-                                        plexId, 
-                                        false, 
-                                        furthestPosition);
-                                        
-                                    if (success)
-                                    {
-                                        _logger.LogInformation("Bidirectional sync: Updated playback position for {ItemName} in Plex to {Position} seconds", 
-                                            item.Name, furthestPosition);
-                                        updatedInPlex++;
-                                    }
-                                }
-                            }
-                        }
-                        else if (syncDirection == "PlexToJellyfin")
-                        {
-                            // One-way sync from Plex to Jellyfin
-                            // Update Jellyfin watch state if it differs from Plex
-                            if (plexWatchState.Watched != jellyfinWatched)
-                            {
-                                if (plexWatchState.Watched)
-                                {
-                                    _userDataManager.MarkPlayed(item, jellyfinUser, DateTime.UtcNow);
-                                }
-                                else
-                                {
-                                    _userDataManager.MarkUnplayed(item, jellyfinUser);
-                                }
-                                
-                                updatedInJellyfin++;
-                                _logger.LogInformation("Updated watch state for {ItemName} in Jellyfin to {WatchState}", 
-                                    item.Name, plexWatchState.Watched ? "watched" : "unwatched");
-                            }
-                            
-                            // Update playback position if needed
-                            if (plexWatchState.PlaybackPosition > 0 && 
-                                Math.Abs(plexWatchState.PlaybackPosition - jellyfinPlaybackPosition) > 10) // 10 second threshold
-                            {
-                                _userDataManager.SaveUserData(
-                                    jellyfinUser.Id,
-                                    item,
-                                    new UserItemData
-                                    {
-                                        PlaybackPositionTicks = Convert.ToInt64(plexWatchState.PlaybackPosition * 10000000),
-                                        Played = jellyfinUserData.Played,
-                                        PlayCount = jellyfinUserData.PlayCount,
-                                        IsFavorite = jellyfinUserData.IsFavorite,
-                                        Rating = jellyfinUserData.Rating,
-                                        LastPlayedDate = jellyfinUserData.LastPlayedDate
-                                    },
-                                    UserDataSaveReason.TogglePlayed);
-                                    
-                                _logger.LogInformation("Updated playback position for {ItemName} in Jellyfin to {Position} seconds", 
-                                    item.Name, plexWatchState.PlaybackPosition);
-                                updatedInJellyfin++;
-                            }
-                        }
-                        else if (syncDirection == "JellyfinToPlex")
-                        {
-                            // One-way sync from Jellyfin to Plex
-                            // Update Plex watch state from Jellyfin
-                            bool success = await _plexApiClient.UpdateItemWatchStateAsync(
-                                plexServerUrl, 
-                                plexApiToken, 
-                                plexId, 
-                                jellyfinWatched, 
-                                jellyfinPlaybackPosition);
-                                
-                            if (success)
-                            {
-                                updatedInPlex++;
-                                _logger.LogInformation("Updated watch state for {ItemName} in Plex to {WatchState}", 
-                                    item.Name, jellyfinWatched ? "watched" : "unwatched");
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error syncing watch state for item {ItemName}", item.Name);
-                        errors++;
-                    }
-                }
-
-                _logger.LogInformation("Watch state sync completed. Updated {JellyfinCount} items in Jellyfin, {PlexCount} items in Plex. Errors: {ErrorCount}", 
-                    updatedInJellyfin, updatedInPlex, errors);
+                _logger.LogInformation("Watch state synchronization completed");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during watch state synchronization");
+                _logger.LogError(ex, "Error finalizing watch state sync");
             }
         }
-    }
-
-    /// <summary>
-    /// Represents the watch state of a Plex item.
-    /// </summary>
-    public class PlexWatchState
-    {
-        /// <summary>
-        /// Gets or sets a value indicating whether the item has been watched.
-        /// </summary>
-        public bool Watched { get; set; }
-        
-        /// <summary>
-        /// Gets or sets the playback position in seconds.
-        /// </summary>
-        public double PlaybackPosition { get; set; }
     }
 }

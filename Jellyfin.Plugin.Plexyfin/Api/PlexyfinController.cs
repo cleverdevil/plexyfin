@@ -75,7 +75,81 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             _userDataManager = userDataManager; // Can be null
         }
         
-        // Rest of the controller implementation remains the same
-        // Only the class name has been updated from PlexyfinController to PlexyfinController
+        /// <summary>
+        /// Internal method for syncing from Plex, used by both the API endpoint and scheduled task.
+        /// </summary>
+        /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+        public async Task<SyncResult> SyncFromPlexAsync()
+        {
+            var config = Plugin.Instance!.Configuration;
+            var result = new SyncResult();
+            
+            // Create a PlexClient instance
+            var plexClient = new PlexClient(_httpClientFactory, _logger, config.PlexServerUrl, config.PlexApiToken);
+            
+            // Sync collections if enabled
+            if (config.SyncCollections)
+            {
+                _logger.LogInformation("Starting collection sync from Plex");
+                
+                // Delete existing collections if configured to do so
+                if (config.DeleteBeforeSync)
+                {
+                    var deletedCount = await DeleteExistingCollectionsAsync().ConfigureAwait(false);
+                    _logger.LogInformation("Deleted {Count} existing collections", deletedCount);
+                }
+                
+                var collectionResults = await SyncCollectionsFromPlexAsync(plexClient).ConfigureAwait(false);
+                result.CollectionsAdded = collectionResults.added;
+                result.CollectionsUpdated = collectionResults.updated;
+                
+                _logger.LogInformation("Collection sync completed. Added {Added} collections, updated {Updated} collections", 
+                    result.CollectionsAdded, result.CollectionsUpdated);
+            }
+            
+            // Sync playlists if enabled (not implemented yet)
+            if (config.SyncPlaylists)
+            {
+                _logger.LogInformation("Playlist sync not implemented yet");
+                // Future implementation
+            }
+            
+            // Sync watch state if enabled
+            if (config.SyncWatchState && _userManager != null && _userDataManager != null)
+            {
+                try
+                {
+                    _logger.LogInformation("Starting watch state synchronization");
+                    
+                    // Get all media items from Jellyfin
+                    var allItems = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
+                    {
+                        IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Episode }
+                    });
+                    
+                    // Create watch state manager
+                    var watchStateManager = new PlexWatchStateManager(
+                        _logger,
+                        _httpClientFactory,
+                        _userManager,
+                        _userDataManager);
+                        
+                    // Sync watch states
+                    await watchStateManager.SyncWatchStateAsync(
+                        allItems,
+                        config.PlexServerUrl,
+                        config.PlexApiToken,
+                        config.SyncWatchStateDirection);
+                        
+                    _logger.LogInformation("Watch state synchronization completed");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error syncing watch states");
+                }
+            }
+            
+            return result;
+        }
     }
 }
