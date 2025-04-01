@@ -16,7 +16,7 @@
                     </div>
                 </div>
                 
-                <form class="plexifinConfigurationForm">
+                <form class="plexyfinconfigurationForm">
                     <div class="inputContainer">
                         <label for="PlexServerUrl">Plex Server URL:</label>
                         <input id="PlexServerUrl" name="PlexServerUrl" type="text" 
@@ -203,12 +203,12 @@
         </div>
 
         <script type="text/javascript">
-            var PlexyfindConfig = {
+            var PlexyfinConfig = {
                 pluginUniqueId: 'b9f0c474-e9a8-4292-ae41-eb3c1542f4cd',
                 selectedLibraryIds: [] // Will store the selected library IDs
             };
 
-            document.querySelector('.plexifinConfigurationForm')
+            document.querySelector('.plexyfinconfigurationForm')
                 .addEventListener('submit', function(e) {
                     e.preventDefault();
                     return false;
@@ -346,7 +346,7 @@
                 });
                 
                 // Update the global selected libraries
-                PlexyfindConfig.selectedLibraryIds = libraries
+                PlexyfinConfig.selectedLibraryIds = libraries
                     .filter(lib => lib.isSelected || lib.IsSelected)
                     .map(lib => lib.id || lib.Id);
                 
@@ -407,15 +407,15 @@
                         
                         if (e.target.checked) {
                             // Add to selected libraries if not already there
-                            if (!PlexyfindConfig.selectedLibraryIds.includes(libraryId)) {
-                                PlexyfindConfig.selectedLibraryIds.push(libraryId);
+                            if (!PlexyfinConfig.selectedLibraryIds.includes(libraryId)) {
+                                PlexyfinConfig.selectedLibraryIds.push(libraryId);
                                 console.log('Added library: ' + libraryId);
                             }
                         } else {
                             // Remove from selected libraries
-                            const index = PlexyfindConfig.selectedLibraryIds.indexOf(libraryId);
+                            const index = PlexyfinConfig.selectedLibraryIds.indexOf(libraryId);
                             if (index !== -1) {
-                                PlexyfindConfig.selectedLibraryIds.splice(index, 1);
+                                PlexyfinConfig.selectedLibraryIds.splice(index, 1);
                                 console.log('Removed library: ' + libraryId);
                             }
                         }
@@ -431,7 +431,7 @@
                 
                 // Clear the selection array if deselecting all
                 if (!selectAll) {
-                    PlexyfindConfig.selectedLibraryIds = [];
+                    PlexyfinConfig.selectedLibraryIds = [];
                 }
                 
                 checkboxes.forEach(function(checkbox) {
@@ -441,27 +441,27 @@
                     
                     if (selectAll) {
                         // Add to selected libraries if not already there
-                        if (!PlexyfindConfig.selectedLibraryIds.includes(libraryId)) {
-                            PlexyfindConfig.selectedLibraryIds.push(libraryId);
+                        if (!PlexyfinConfig.selectedLibraryIds.includes(libraryId)) {
+                            PlexyfinConfig.selectedLibraryIds.push(libraryId);
                         }
                     }
                 });
                 
                 // Log the current selection
                 console.log('Selected libraries (' + (selectAll ? 'all' : 'none') + '): ', 
-                    PlexyfindConfig.selectedLibraryIds);
+                    PlexyfinConfig.selectedLibraryIds);
                 
                 // Update server with new selection
                 updateSelectedLibraries();
             }
             
             function updateSelectedLibraries() {
-                console.log('Sending selection to server: ', PlexyfindConfig.selectedLibraryIds);
+                console.log('Sending selection to server: ', PlexyfinConfig.selectedLibraryIds);
                 
                 ApiClient.ajax({
                     type: 'POST',
                     url: ApiClient.getUrl('/Plexyfin/UpdateSelectedLibraries'),
-                    data: JSON.stringify(PlexyfindConfig.selectedLibraryIds),
+                    data: JSON.stringify(PlexyfinConfig.selectedLibraryIds),
                     contentType: 'application/json'
                 }).then(function(result) {
                     // Success
@@ -505,7 +505,7 @@
                 Dashboard.showLoadingMsg();
                 
                 // Get current configuration
-                ApiClient.getPluginConfiguration(PlexyfindConfig.pluginUniqueId).then(function (config) {
+                ApiClient.getPluginConfiguration(PlexyfinConfig.pluginUniqueId).then(function (config) {
                     // Update with new values from form
                     config.PlexServerUrl = document.querySelector('#PlexServerUrl').value;
                     config.PlexApiToken = document.querySelector('#PlexApiToken').value;
@@ -537,10 +537,10 @@
                     config.MaxUrlPatternAttempts = maxAttempts;
                     
                     // Make sure selected libraries are included
-                    config.SelectedLibraries = PlexyfindConfig.selectedLibraryIds;
+                    config.SelectedLibraries = PlexyfinConfig.selectedLibraryIds;
                     
                     // Save updated configuration
-                    ApiClient.updatePluginConfiguration(PlexyfindConfig.pluginUniqueId, config).then(function (result) {
+                    ApiClient.updatePluginConfiguration(PlexyfinConfig.pluginUniqueId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
                         showMessage('Settings saved successfully!', false);
                     });
@@ -549,7 +549,7 @@
 
             // Load configuration from server
             Dashboard.showLoadingMsg();
-            ApiClient.getPluginConfiguration(PlexyfindConfig.pluginUniqueId).then(function (config) {
+            ApiClient.getPluginConfiguration(PlexyfinConfig.pluginUniqueId).then(function (config) {
                 // Fill form with saved configuration
                 document.querySelector('#PlexServerUrl').value = config.PlexServerUrl || '';
                 document.querySelector('#PlexApiToken').value = config.PlexApiToken || '';
@@ -568,7 +568,7 @@
                 toggleWatchStateDirection();
                 
                 // Store selected libraries
-                PlexyfindConfig.selectedLibraryIds = config.SelectedLibraries || [];
+                PlexyfinConfig.selectedLibraryIds = config.SelectedLibraries || [];
                 
                 // If we have Plex credentials, test the connection to get libraries
                 if (config.PlexServerUrl && config.PlexApiToken) {

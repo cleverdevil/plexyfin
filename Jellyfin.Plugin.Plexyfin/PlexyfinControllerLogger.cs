@@ -5,17 +5,17 @@ using Jellyfin.Plugin.Plexyfin.Api;
 namespace Jellyfin.Plugin.Plexyfin
 {
     /// <summary>
-    /// Logger adapter that converts ILogger&lt;PlexifinScheduledTask&gt; to ILogger&lt;PlexifinController&gt;
+    /// Logger adapter that converts ILogger&lt;PlexyfinScheduledTask&gt; to ILogger&lt;PlexyfinController&gt;
     /// </summary>
-    public class PlexifinControllerLogger : ILogger<PlexifinController>
+    public class PlexyfinControllerLogger : ILogger<PlexyfinController>
     {
         private readonly ILogger _innerLogger;
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="PlexifinControllerLogger"/> class.
+        /// Initializes a new instance of the <see cref="PlexyfinControllerLogger"/> class.
         /// </summary>
         /// <param name="logger">The source logger to adapt.</param>
-        public PlexifinControllerLogger(ILogger logger)
+        public PlexyfinControllerLogger(ILogger logger)
         {
             _innerLogger = logger;
         }

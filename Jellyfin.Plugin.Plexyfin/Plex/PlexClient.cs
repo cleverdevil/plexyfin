@@ -19,7 +19,7 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
         private readonly ILogger _logger;
         private readonly string _baseUrl;
         private readonly string _apiToken;
-        private readonly string _clientIdentifier = "PlexifinJellyfinPlugin";
+        private readonly string _clientIdentifier = "PlexyfinJellyfinPlugin";
 
         /// <summary>
         /// Initializes a new instance of the <see cref="PlexClient"/> class.

@@ -31,17 +31,17 @@ namespace Jellyfin.Plugin.Plexyfin
     /// <summary>
     /// Task that triggers automatic sync from Plex to Jellyfin.
     /// </summary>
-    public class PlexifinScheduledTask : IScheduledTask
+    public class PlexyfinScheduledTask : IScheduledTask
     {
         private readonly ILibraryManager _libraryManager;
         private readonly ICollectionManager _collectionManager;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IProviderManager _providerManager;
         private readonly IFileSystem _fileSystem;
-        private readonly ILogger<PlexifinScheduledTask> _logger;
+        private readonly ILogger<PlexyfinScheduledTask> _logger;
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="PlexifinScheduledTask"/> class.
+        /// Initializes a new instance of the <see cref="PlexyfinScheduledTask"/> class.
         /// </summary>
         /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/>.</param>
         /// <param name="collectionManager">Instance of the <see cref="ICollectionManager"/>.</param>
@@ -49,13 +49,13 @@ namespace Jellyfin.Plugin.Plexyfin
         /// <param name="providerManager">Instance of the <see cref="IProviderManager"/>.</param>
         /// <param name="fileSystem">Instance of the <see cref="IFileSystem"/>.</param>
         /// <param name="logger">Instance of the <see cref="ILogger{T}"/>.</param>
-        public PlexifinScheduledTask(
+        public PlexyfinScheduledTask(
             ILibraryManager libraryManager,
             ICollectionManager collectionManager,
             IHttpClientFactory httpClientFactory,
             IProviderManager providerManager,
             IFileSystem fileSystem,
-            ILogger<PlexifinScheduledTask> logger)
+            ILogger<PlexyfinScheduledTask> logger)
         {
             _libraryManager = libraryManager;
             _collectionManager = collectionManager;
@@ -69,7 +69,7 @@ namespace Jellyfin.Plugin.Plexyfin
         public string Name => "Sync from Plex";
 
         /// <inheritdoc />
-        public string Key => "PlexifinSync";
+        public string Key => "PlexyfinSync";
 
         /// <inheritdoc />
         public string Description => "Syncs collections and playlists from Plex to Jellyfin.";
@@ -106,8 +106,8 @@ namespace Jellyfin.Plugin.Plexyfin
                 _logger.LogInformation("Creating controller with provider manager and file system dependencies");
                 
                 // Create a controller instance to reuse the sync logic
-                var controllerLogger = new PlexifinControllerLogger(_logger);
-                var controller = new PlexifinController(
+                var controllerLogger = new PlexyfinControllerLogger(_logger);
+                var controller = new PlexyfinController(
                     _libraryManager,
                     _collectionManager,
                     _httpClientFactory,
@@ -208,7 +208,7 @@ namespace Jellyfin.Plugin.Plexyfin
                 // We no longer need the image provider as we're using direct file system access
                 
                 // Register the scheduled task
-                serviceCollection.AddSingleton<IScheduledTask, PlexifinScheduledTask>();
+                serviceCollection.AddSingleton<IScheduledTask, PlexyfinScheduledTask>();
                 
                 // IFileSystem should already be registered by Jellyfin's core services
                 
