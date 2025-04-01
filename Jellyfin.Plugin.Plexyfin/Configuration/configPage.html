@@ -109,6 +109,28 @@
                         <div class="fieldDescription" style="margin-left: 25px; font-size: 90%; margin-bottom: 15px;">
                             When enabled, collection posters and backdrops will be synced from Plex to Jellyfin.
                         </div>
+                        
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" id="SyncWatchState" />
+                                <span>Sync Watch State</span>
+                            </label>
+                        </div>
+                        <div class="fieldDescription" style="margin-left: 25px; font-size: 90%; margin-bottom: 15px;">
+                            When enabled, watched/unwatched status will be synchronized between Plex and Jellyfin.
+                        </div>
+                        
+                        <div class="inputContainer" id="watchStateDirectionContainer" style="margin-left: 25px; display: none;">
+                            <label for="SyncWatchStateDirection">Watch State Sync Direction:</label>
+                            <select id="SyncWatchStateDirection" name="SyncWatchStateDirection">
+                                <option value="PlexToJellyfin">Plex to Jellyfin (one-way)</option>
+                                <option value="JellyfinToPlex">Jellyfin to Plex (one-way)</option>
+                                <option value="Bidirectional">Bidirectional (both ways)</option>
+                            </select>
+                            <div class="fieldDescription" style="font-size: 90%; margin-bottom: 15px;">
+                                Choose how watch state should be synchronized between the two platforms.
+                            </div>
+                        </div>
                     </div>
                     
                     <div class="verticalSection">
@@ -216,6 +238,17 @@
                 .addEventListener('click', function() {
                     selectAllLibraries(false);
                 });
+                
+            document.querySelector('#SyncWatchState')
+                .addEventListener('change', function() {
+                    toggleWatchStateDirection();
+                });
+                
+            function toggleWatchStateDirection() {
+                const watchStateEnabled = document.querySelector('#SyncWatchState').checked;
+                document.querySelector('#watchStateDirectionContainer').style.display = 
+                    watchStateEnabled ? 'block' : 'none';
+            }
 
             function showMessage(message, isError) {
                 const saveResultElem = document.querySelector('#saveResult');
@@ -477,6 +510,8 @@
                     config.SyncArtwork = document.querySelector('#SyncArtwork').checked;
                     config.EnableScheduledSync = document.querySelector('#EnableScheduledSync').checked;
                     config.EnableDebugMode = document.querySelector('#EnableDebugMode').checked;
+                    config.SyncWatchState = document.querySelector('#SyncWatchState').checked;
+                    config.SyncWatchStateDirection = document.querySelector('#SyncWatchStateDirection').value;
                     
                     // Parse the sync interval with validation
                     var syncInterval = parseInt(document.querySelector('#SyncIntervalHours').value);
@@ -521,6 +556,11 @@
                 document.querySelector('#SyncIntervalHours').value = config.SyncIntervalHours || 24;
                 document.querySelector('#EnableDebugMode').checked = config.EnableDebugMode || false;
                 document.querySelector('#MaxUrlPatternAttempts').value = config.MaxUrlPatternAttempts || 3;
+                document.querySelector('#SyncWatchState').checked = config.SyncWatchState || false;
+                document.querySelector('#SyncWatchStateDirection').value = config.SyncWatchStateDirection || 'PlexToJellyfin';
+                
+                // Show/hide watch state direction based on checkbox
+                toggleWatchStateDirection();
                 
                 // Store selected libraries
                 PlexyfindConfig.selectedLibraryIds = config.SelectedLibraries || [];

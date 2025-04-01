@@ -41,6 +41,8 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         private readonly IProviderManager? _providerManager;
         private readonly IFileSystem? _fileSystem;
         private readonly ILogger<PlexifinController> _logger;
+        private readonly IUserManager? _userManager;
+        private readonly IUserDataManager? _userDataManager;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="PlexifinController"/> class.
@@ -51,13 +53,17 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         /// <param name="providerManager">Instance of the <see cref="IProviderManager"/>. Can be null.</param>
         /// <param name="fileSystem">Instance of the <see cref="IFileSystem"/>. Can be null.</param>
         /// <param name="logger">Instance of the <see cref="ILogger{T}"/>.</param>
+        /// <param name="userManager">Instance of the <see cref="IUserManager"/>. Can be null.</param>
+        /// <param name="userDataManager">Instance of the <see cref="IUserDataManager"/>. Can be null.</param>
         public PlexifinController(
             ILibraryManager libraryManager,
             ICollectionManager collectionManager,
             IHttpClientFactory httpClientFactory,
             IProviderManager? providerManager,
             IFileSystem? fileSystem,
-            ILogger<PlexifinController> logger)
+            ILogger<PlexifinController> logger,
+            IUserManager? userManager = null,
+            IUserDataManager? userDataManager = null)
         {
             _libraryManager = libraryManager ?? throw new ArgumentNullException(nameof(libraryManager));
             _collectionManager = collectionManager ?? throw new ArgumentNullException(nameof(collectionManager));
@@ -65,6 +71,8 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             _providerManager = providerManager; // Can be null
             _fileSystem = fileSystem; // Can be null
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _userManager = userManager; // Can be null
+            _userDataManager = userDataManager; // Can be null
         }
         
         /// <summary>
@@ -246,6 +254,41 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             {
                 _logger.LogInformation("Playlist sync not implemented yet");
                 // Future implementation
+            }
+            
+            // Sync watch state if enabled
+            if (config.SyncWatchState && _userManager != null && _userDataManager != null)
+            {
+                try
+                {
+                    _logger.LogInformation("Starting watch state synchronization");
+                    
+                    // Get all media items from Jellyfin
+                    var allItems = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
+                    {
+                        IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Episode }
+                    });
+                    
+                    // Create watch state manager
+                    var watchStateManager = new PlexWatchStateManager(
+                        _logger,
+                        _httpClientFactory,
+                        _userManager,
+                        _userDataManager);
+                        
+                    // Sync watch states
+                    await watchStateManager.SyncWatchStateAsync(
+                        allItems,
+                        config.PlexServerUrl,
+                        config.PlexApiToken,
+                        config.SyncWatchStateDirection);
+                        
+                    _logger.LogInformation("Watch state synchronization completed");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error syncing watch states");
+                }
             }
             
             return result;

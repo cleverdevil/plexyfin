@@ -11,6 +11,7 @@ A plugin for Jellyfin that syncs collections and artwork from your Plex Media Se
 - Selective synchronization of specific Plex libraries
 - Performance optimizations with configurable debug mode
 - Error handling for improved reliability
+- Watch state synchronization between Plex and Jellyfin
 
 ## Installation
 
@@ -44,6 +45,7 @@ A plugin for Jellyfin that syncs collections and artwork from your Plex Media Se
 5. Configure sync options:
    - Enable collection sync
    - Enable artwork sync
+   - Enable watch state sync with configurable direction
    - Set scheduled sync interval if desired
 6. Click "Save"
 7. Run a manual sync by clicking "Sync from Plex"
