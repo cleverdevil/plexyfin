@@ -486,7 +486,7 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                     url = $"{url}{separator}X-Plex-Token={_apiToken}";
                 }
                 
-                _logger.LogInformation("Trying to fetch collection items with URL: {Url}", url);
+                _logger.LogDebug("Trying to fetch collection items with URL: {Url}", url);
                 
                 using var request = new HttpRequestMessage(HttpMethod.Get, url);
                 SetPlexHeaders(request);

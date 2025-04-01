@@ -10,6 +10,6 @@
   "framework": "net8.0",
   "status": "Active",
   "autoUpdate": true,
-  "timestamp": "2025-03-27T03:44:21.0000000Z",
+  "timestamp": "2025-03-28T00:19:08.0000000Z",
   "changelog": "Added direct filesystem artwork sync, fixed collection artwork, improved error handling, added environment variable support"
 }

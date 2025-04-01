@@ -488,18 +488,22 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 
                 _logger.LogInformation("Successfully downloaded image: {Length} bytes", imageBytes.Length);
                 
-                // Save to a temp file for debugging
-                var tempDir = "/config/logs/plexyfin-debug";
-                try
+                // Save to a temp file for debugging only if debug mode is enabled
+                var config = Plugin.Instance.Configuration;
+                if (config.EnableDebugMode)
                 {
-                    Directory.CreateDirectory(tempDir);
-                    var tempFile = Path.Combine(tempDir, $"debug_image_{DateTime.Now.Ticks}.jpg");
-                    await System.IO.File.WriteAllBytesAsync(tempFile, imageBytes).ConfigureAwait(false);
-                    _logger.LogInformation("Saved debug copy of image to {Path}", tempFile);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Could not save debug image file");
+                    var tempDir = "/config/logs/plexyfin-debug";
+                    try
+                    {
+                        Directory.CreateDirectory(tempDir);
+                        var tempFile = Path.Combine(tempDir, $"debug_image_{DateTime.Now.Ticks}.jpg");
+                        await System.IO.File.WriteAllBytesAsync(tempFile, imageBytes).ConfigureAwait(false);
+                        _logger.LogInformation("Saved debug copy of image to {Path}", tempFile);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not save debug image file");
+                    }
                 }
                 
                 // Get the item to update directly using the library manager
@@ -622,33 +626,41 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         imageType, item.Name);
                     
                     // Queue a refresh of the item to pick up the new image
-                    _logger.LogInformation("Queuing metadata refresh for collection: {Name}", item.Name);
+                    _logger.LogDebug("Queuing metadata refresh for collection: {Name}", item.Name);
                     if (_providerManager != null)
                     {
-                        // Trigger an image update first
-                        await _libraryManager.UpdateItemAsync(
-                            item, 
-                            item.GetParent(), 
-                            ItemUpdateType.ImageUpdate, 
-                            CancellationToken.None).ConfigureAwait(false);
-                        
-                        // Since we're having issues with MetadataRefreshOptions constructor,
-                        // let's use a simpler approach to trigger a refresh
-                        _logger.LogInformation("Triggering image refresh for {0}", item.Name);
-                        
-                        // Use UpdateItemAsync with the ImageUpdate type to trigger a refresh
-                        await _libraryManager.UpdateItemAsync(
-                            item,
-                            item.GetParent(),
-                            ItemUpdateType.ImageUpdate,
-                            CancellationToken.None).ConfigureAwait(false);
-                        
-                        // Also trigger a metadata refresh
-                        await _libraryManager.UpdateItemAsync(
-                            item,
-                            item.GetParent(),
-                            ItemUpdateType.MetadataEdit,
-                            CancellationToken.None).ConfigureAwait(false);
+                        try
+                        {
+                            // Trigger an image update first
+                            await _libraryManager.UpdateItemAsync(
+                                item, 
+                                item.GetParent(), 
+                                ItemUpdateType.ImageUpdate, 
+                                CancellationToken.None).ConfigureAwait(false);
+                            
+                            // Since we're having issues with MetadataRefreshOptions constructor,
+                            // let's use a simpler approach to trigger a refresh
+                            _logger.LogInformation("Triggering image refresh for {0}", item.Name);
+                            
+                            // Use UpdateItemAsync with the ImageUpdate type to trigger a refresh
+                            await _libraryManager.UpdateItemAsync(
+                                item,
+                                item.GetParent(),
+                                ItemUpdateType.ImageUpdate,
+                                CancellationToken.None).ConfigureAwait(false);
+                            
+                            // Also trigger a metadata refresh
+                            await _libraryManager.UpdateItemAsync(
+                                item,
+                                item.GetParent(),
+                                ItemUpdateType.MetadataEdit,
+                                CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            // Don't let BlurHash errors stop the process
+                            _logger.LogWarning(ex, "Error refreshing metadata for {Item} - continuing anyway", item.Name);
+                        }
                     }
                     else
                     {

@@ -23,6 +23,8 @@ namespace Jellyfin.Plugin.Plexyfin.Configuration
             EnableScheduledSync = false;
             SyncIntervalHours = 24; // Default to daily sync
             SelectedLibraries = new List<string>(); // Initialize with empty list
+            EnableDebugMode = false; // Default to no debug mode
+            MaxUrlPatternAttempts = 3; // Default to 3 URL pattern attempts
         }
 
         /// <summary>
@@ -70,5 +72,17 @@ namespace Jellyfin.Plugin.Plexyfin.Configuration
         /// If empty, all libraries will be considered.
         /// </summary>
         public List<string> SelectedLibraries { get; set; }
+        
+        /// <summary>
+        /// Gets or sets a value indicating whether debug mode is enabled.
+        /// When enabled, debug images will be saved and more verbose logging will occur.
+        /// </summary>
+        public bool EnableDebugMode { get; set; }
+        
+        /// <summary>
+        /// Gets or sets the maximum number of URL patterns to try when fetching collection items.
+        /// Lower values improve performance but may reduce compatibility with some Plex servers.
+        /// </summary>
+        public int MaxUrlPatternAttempts { get; set; }
     }
 }
