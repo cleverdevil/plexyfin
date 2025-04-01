@@ -56,6 +56,10 @@ The plugin includes several advanced options that can be configured:
 
 - **EnableDebugMode**: When enabled, saves debug copies of images and provides more verbose logging
 - **MaxUrlPatternAttempts**: Controls how many URL patterns to try when fetching collection items (default: 3)
+- **SyncWatchStateDirection**: Controls how watch states are synchronized:
+  - **Bidirectional** (default): If content is marked as watched in either system, it will be marked as watched in both. For in-progress content, the furthest playback position is used.
+  - **PlexToJellyfin**: One-way sync from Plex to Jellyfin
+  - **JellyfinToPlex**: One-way sync from Jellyfin to Plex
 
 ## Environment Variables
 

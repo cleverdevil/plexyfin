@@ -26,7 +26,7 @@ namespace Jellyfin.Plugin.Plexyfin.Configuration
             EnableDebugMode = false; // Default to no debug mode
             MaxUrlPatternAttempts = 3; // Default to 3 URL pattern attempts
             SyncWatchState = false; // Default to not syncing watch state
-            SyncWatchStateDirection = "PlexToJellyfin"; // Default to one-way sync from Plex to Jellyfin
+            SyncWatchStateDirection = "Bidirectional"; // Default to bidirectional sync
         }
 
         /// <summary>
