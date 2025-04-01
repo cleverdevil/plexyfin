@@ -12,6 +12,7 @@ A plugin for Jellyfin that syncs collections and artwork from your Plex Media Se
 - Performance optimizations with configurable debug mode
 - Error handling for improved reliability
 - Watch state synchronization between Plex and Jellyfin
+- Dry run mode to preview changes before applying them
 
 ## Installation
 
