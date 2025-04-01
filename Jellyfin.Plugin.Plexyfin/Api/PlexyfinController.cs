@@ -76,6 +76,6 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         }
         
         // Rest of the controller implementation remains the same
-        // Only the class name has been updated from PlexifinController to PlexyfinController
+        // Only the class name has been updated from PlexyfinController to PlexyfinController
     }
 }
