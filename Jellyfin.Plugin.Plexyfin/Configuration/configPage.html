@@ -224,6 +224,11 @@
                     syncFromPlex();
                 });
                 
+            document.querySelector('#btnDryRun')
+                .addEventListener('click', function() {
+                    dryRunSync();
+                });
+                
             document.querySelector('#btnTestConnection')
                 .addEventListener('click', function() {
                     testPlexConnection();
@@ -576,3 +581,47 @@
     </div>
 </body>
 </html>
+                    <div class="verticalSection">
+                        <h3 class="sectionTitle">Actions</h3>
+                        <div>
+                            <button is="emby-button" type="button" class="raised button-submit" id="btnSyncNow">
+                                <span>Sync from Plex</span>
+                            </button>
+                            <button is="emby-button" type="button" class="raised" id="btnDryRun">
+                                <span>Dry Run (Preview Changes)</span>
+                            </button>
+                        </div>
+                        <div class="fieldDescription" style="margin-top: 10px;">
+                            "Sync from Plex" will immediately sync collections and watch states based on your settings.<br>
+                            "Dry Run" will show what changes would be made without actually applying them.
+                        </div>
+                    </div>
+            function dryRunSync() {
+                Dashboard.showLoadingMsg();
+                
+                ApiClient.ajax({
+                    type: 'POST',
+                    url: ApiClient.getUrl('/Plexyfin/DryRunSync'),
+                    dataType: 'json'
+                }).then(function(result) {
+                    Dashboard.hideLoadingMsg();
+                    
+                    // Create a dialog to show the results
+                    var html = '<div>';
+                    html += '<h2>Dry Run Completed</h2>';
+                    html += '<p>A detailed report has been generated showing what changes would be made during a sync operation.</p>';
+                    html += '<p><a href="' + result.DownloadUrl + '" target="_blank" class="button-link">Download Report</a></p>';
+                    html += '</div>';
+                    
+                    Dashboard.alert({
+                        message: html,
+                        title: 'Dry Run Results',
+                        callback: function() {
+                            // Nothing to do on close
+                        }
+                    });
+                }, function(error) {
+                    Dashboard.hideLoadingMsg();
+                    showMessage('Error performing dry run: ' + error.status + ' ' + error.statusText, true);
+                });
+            }

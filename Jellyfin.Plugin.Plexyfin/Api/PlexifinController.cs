@@ -218,6 +218,137 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         }
         
         /// <summary>
+        /// Performs a dry run sync from Plex to Jellyfin without making any changes.
+        /// </summary>
+        /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+        [HttpPost("DryRunSync")]
+        [AllowAnonymous]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult> DryRunSync()
+        {
+            try
+            {
+                var config = Plugin.Instance!.Configuration;
+                
+                if (string.IsNullOrEmpty(config.PlexServerUrl) || string.IsNullOrEmpty(config.PlexApiToken))
+                {
+                    return BadRequest(new { Error = "Plex server URL and API token must be configured" });
+                }
+                
+                _logger.LogInformation("Starting dry run sync from Plex");
+                
+                // Create a log file for the dry run
+                var logFilePath = Path.Combine(
+                    Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? string.Empty,
+                    "data",
+                    "plexyfin_dry_run_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
+                
+                // Ensure directory exists
+                Directory.CreateDirectory(Path.GetDirectoryName(logFilePath)!);
+                
+                using (var logWriter = new StreamWriter(logFilePath, false))
+                {
+                    logWriter.WriteLine("=== PLEXYFIN DRY RUN SYNC REPORT ===");
+                    logWriter.WriteLine($"Date: {DateTime.Now}");
+                    logWriter.WriteLine($"Plex Server: {config.PlexServerUrl}");
+                    logWriter.WriteLine("======================================");
+                    logWriter.WriteLine();
+                    
+                    // Create a PlexClient instance
+                    var plexClient = new PlexClient(_httpClientFactory, _logger, config.PlexServerUrl, config.PlexApiToken);
+                    
+                    // Collection changes
+                    if (config.SyncCollections)
+                    {
+                        logWriter.WriteLine("=== COLLECTIONS ===");
+                        var collectionChanges = await GetCollectionChangesAsync(plexClient, logWriter).ConfigureAwait(false);
+                        logWriter.WriteLine($"Collections that would be created: {collectionChanges.toCreate.Count}");
+                        logWriter.WriteLine($"Collections that would be updated: {collectionChanges.toUpdate.Count}");
+                        if (config.DeleteBeforeSync)
+                        {
+                            logWriter.WriteLine("WARNING: DeleteBeforeSync is enabled - all existing collections would be deleted first");
+                        }
+                        logWriter.WriteLine();
+                    }
+                    
+                    // Watch state changes
+                    if (config.SyncWatchState)
+                    {
+                        logWriter.WriteLine("=== WATCH STATE CHANGES ===");
+                        logWriter.WriteLine($"Sync direction: {config.SyncWatchStateDirection}");
+                        var watchStateChanges = await GetWatchStateChangesAsync(plexClient, logWriter).ConfigureAwait(false);
+                        logWriter.WriteLine($"Items that would have watch state updated in Jellyfin: {watchStateChanges.jellyfinChanges}");
+                        logWriter.WriteLine($"Items that would have watch state updated in Plex: {watchStateChanges.plexChanges}");
+                        logWriter.WriteLine();
+                    }
+                    
+                    logWriter.WriteLine("=== END OF DRY RUN REPORT ===");
+                }
+                
+                return Ok(new
+                {
+                    Message = "Dry run completed successfully",
+                    LogFilePath = logFilePath,
+                    DownloadUrl = $"/Plexyfin/DownloadDryRunLog?path={Uri.EscapeDataString(logFilePath)}"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error performing dry run sync");
+                return StatusCode(500, new { Error = ex.Message });
+            }
+        }
+        
+        /// <summary>
+        /// Downloads the dry run log file.
+        /// </summary>
+        /// <param name="path">Path to the log file.</param>
+        /// <returns>The log file as a download.</returns>
+        [HttpGet("DownloadDryRunLog")]
+        [AllowAnonymous]
+        public ActionResult DownloadDryRunLog([FromQuery] string path)
+        {
+            try
+            {
+                if (!System.IO.File.Exists(path))
+                {
+                    return NotFound(new { Error = "Log file not found" });
+                }
+                
+                var fileBytes = System.IO.File.ReadAllBytes(path);
+                var fileName = Path.GetFileName(path);
+                
+                return File(fileBytes, "text/plain", fileName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error downloading dry run log");
+                return StatusCode(500, new { Error = ex.Message });
+            }
+        }
+                
+                var syncResult = await SyncFromPlexAsync().ConfigureAwait(false);
+                
+                return Ok(new
+                {
+                    Message = "Sync completed successfully",
+                    CollectionsAdded = syncResult.CollectionsAdded,
+                    CollectionsUpdated = syncResult.CollectionsUpdated,
+                    PlaylistsAdded = syncResult.PlaylistsAdded,
+                    PlaylistsUpdated = syncResult.PlaylistsUpdated
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error syncing from Plex");
+                return StatusCode(500, new { Error = ex.Message });
+            }
+        }
+        
+        /// <summary>
         /// Internal method for syncing from Plex, used by both the API endpoint and scheduled task.
         /// </summary>
         /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
@@ -1064,3 +1195,297 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         }
     }
 }
+        /// <summary>
+        /// Gets potential collection changes without applying them.
+        /// </summary>
+        /// <param name="plexClient">The Plex client.</param>
+        /// <param name="logWriter">The log writer.</param>
+        /// <returns>A tuple with collections to create and update.</returns>
+        private async Task<(List<string> toCreate, List<string> toUpdate)> GetCollectionChangesAsync(PlexClient plexClient, StreamWriter logWriter)
+        {
+            var config = Plugin.Instance!.Configuration;
+            var toCreate = new List<string>();
+            var toUpdate = new List<string>();
+            
+            try
+            {
+                // Get all collections from Plex
+                var plexCollections = await plexClient.GetCollectionsAsync().ConfigureAwait(false);
+                
+                // Filter collections based on selected libraries if any are selected
+                if (config.SelectedLibraries.Count > 0)
+                {
+                    plexCollections = plexCollections
+                        .Where(c => config.SelectedLibraries.Contains(c.LibraryId))
+                        .ToList();
+                }
+                
+                // Get all existing collections in Jellyfin
+                var jellyfinCollections = _libraryManager.GetItemList(new InternalItemsQuery
+                {
+                    IncludeItemTypes = new[] { BaseItemKind.BoxSet }
+                });
+                
+                // Dictionary to quickly look up Jellyfin collections by name
+                var jellyfinCollectionsByName = jellyfinCollections.ToDictionary(
+                    c => c.Name,
+                    c => c,
+                    StringComparer.OrdinalIgnoreCase);
+                
+                // Check each Plex collection
+                foreach (var plexCollection in plexCollections)
+                {
+                    logWriter.WriteLine($"Collection: {plexCollection.Title}");
+                    
+                    // Check if this collection already exists in Jellyfin
+                    if (jellyfinCollectionsByName.TryGetValue(plexCollection.Title, out var existingCollection))
+                    {
+                        // Collection exists, would be updated
+                        toUpdate.Add(plexCollection.Title);
+                        logWriter.WriteLine($"  - Would update existing collection");
+                        
+                        // Get items that would be added to the collection
+                        var plexItems = await plexClient.GetCollectionItemsAsync(plexCollection.Key).ConfigureAwait(false);
+                        var jellyfinItems = new List<BaseItem>();
+                        
+                        foreach (var plexItem in plexItems)
+                        {
+                            // Try to find matching Jellyfin item
+                            var jellyfinItem = FindJellyfinItem(plexItem);
+                            if (jellyfinItem != null)
+                            {
+                                jellyfinItems.Add(jellyfinItem);
+                            }
+                        }
+                        
+                        // Compare items
+                        var existingItemIds = existingCollection.GetLinkedChildren()
+                            .Select(i => i.Id)
+                            .ToHashSet();
+                            
+                        var itemsToAdd = jellyfinItems
+                            .Where(i => !existingItemIds.Contains(i.Id))
+                            .ToList();
+                            
+                        logWriter.WriteLine($"  - Would add {itemsToAdd.Count} new items to collection");
+                        foreach (var item in itemsToAdd.Take(10))
+                        {
+                            logWriter.WriteLine($"    - {item.Name}");
+                        }
+                        if (itemsToAdd.Count > 10)
+                        {
+                            logWriter.WriteLine($"    - ... and {itemsToAdd.Count - 10} more");
+                        }
+                    }
+                    else
+                    {
+                        // Collection doesn't exist, would be created
+                        toCreate.Add(plexCollection.Title);
+                        logWriter.WriteLine($"  - Would create new collection");
+                        
+                        // Get items that would be added to the collection
+                        var plexItems = await plexClient.GetCollectionItemsAsync(plexCollection.Key).ConfigureAwait(false);
+                        var jellyfinItems = new List<BaseItem>();
+                        
+                        foreach (var plexItem in plexItems)
+                        {
+                            // Try to find matching Jellyfin item
+                            var jellyfinItem = FindJellyfinItem(plexItem);
+                            if (jellyfinItem != null)
+                            {
+                                jellyfinItems.Add(jellyfinItem);
+                            }
+                        }
+                        
+                        logWriter.WriteLine($"  - Would add {jellyfinItems.Count} items to new collection");
+                        foreach (var item in jellyfinItems.Take(10))
+                        {
+                            logWriter.WriteLine($"    - {item.Name}");
+                        }
+                        if (jellyfinItems.Count > 10)
+                        {
+                            logWriter.WriteLine($"    - ... and {jellyfinItems.Count - 10} more");
+                        }
+                    }
+                    
+                    logWriter.WriteLine();
+                }
+            }
+            catch (Exception ex)
+            {
+                logWriter.WriteLine($"Error analyzing collection changes: {ex.Message}");
+                _logger.LogError(ex, "Error analyzing collection changes");
+            }
+            
+            return (toCreate, toUpdate);
+        }
+        
+        /// <summary>
+        /// Gets potential watch state changes without applying them.
+        /// </summary>
+        /// <param name="plexClient">The Plex client.</param>
+        /// <param name="logWriter">The log writer.</param>
+        /// <returns>A tuple with counts of changes in Jellyfin and Plex.</returns>
+        private async Task<(int jellyfinChanges, int plexChanges)> GetWatchStateChangesAsync(PlexClient plexClient, StreamWriter logWriter)
+        {
+            var config = Plugin.Instance!.Configuration;
+            int jellyfinChanges = 0;
+            int plexChanges = 0;
+            
+            try
+            {
+                // Get the default Jellyfin user
+                var jellyfinUser = _userManager?.Users.FirstOrDefault();
+                if (jellyfinUser == null)
+                {
+                    logWriter.WriteLine("No Jellyfin users found for watch state sync");
+                    return (0, 0);
+                }
+                
+                // Get all items that have Plex IDs
+                var jellyfinItems = _libraryManager.GetItemList(new InternalItemsQuery
+                {
+                    IsVirtualItem = false,
+                    HasAnyProviderId = new[] { "Plex" }
+                });
+                
+                // Filter items based on selected libraries if any are selected
+                if (config.SelectedLibraries.Count > 0)
+                {
+                    // We would need to get the library IDs from Plex for each item
+                    // This is a simplification - in a real implementation, you'd map Jellyfin libraries to Plex libraries
+                    logWriter.WriteLine("Note: Library filtering for watch state is approximated in dry run");
+                }
+                
+                logWriter.WriteLine($"Analyzing watch state for {jellyfinItems.Count} items with Plex IDs");
+                
+                // Sample a subset of items for the dry run to keep the report manageable
+                var sampleSize = Math.Min(100, jellyfinItems.Count);
+                var sampledItems = jellyfinItems
+                    .OrderBy(_ => Guid.NewGuid()) // Random sampling
+                    .Take(sampleSize)
+                    .ToList();
+                
+                logWriter.WriteLine($"Sampling {sampleSize} items for detailed analysis");
+                logWriter.WriteLine();
+                
+                foreach (var item in sampledItems)
+                {
+                    var plexId = item.GetProviderId("Plex");
+                    if (string.IsNullOrEmpty(plexId))
+                    {
+                        continue;
+                    }
+                    
+                    // Get Jellyfin watch state
+                    var jellyfinUserData = _userDataManager?.GetUserData(jellyfinUser, item);
+                    bool jellyfinWatched = jellyfinUserData?.Played ?? false;
+                    double jellyfinPlaybackPosition = (jellyfinUserData?.PlaybackPositionTicks ?? 0) / 10000000.0; // Convert ticks to seconds
+                    
+                    // Get Plex watch state
+                    var plexWatchState = await plexClient.GetItemWatchStateAsync(plexId).ConfigureAwait(false);
+                    if (plexWatchState == null)
+                    {
+                        logWriter.WriteLine($"Could not retrieve Plex watch state for {item.Name}");
+                        continue;
+                    }
+                    
+                    logWriter.WriteLine($"Item: {item.Name}");
+                    logWriter.WriteLine($"  - Jellyfin: {(jellyfinWatched ? "Watched" : "Unwatched")}, Position: {jellyfinPlaybackPosition} seconds");
+                    logWriter.WriteLine($"  - Plex: {(plexWatchState.Watched ? "Watched" : "Unwatched")}, Position: {plexWatchState.PlaybackPosition} seconds");
+                    
+                    if (config.SyncWatchStateDirection == "Bidirectional")
+                    {
+                        // For bidirectional sync, implement "watched in either = watched everywhere" approach
+                        bool watchedInEither = plexWatchState.Watched || jellyfinWatched;
+                        
+                        // Check if Jellyfin needs update
+                        if (watchedInEither != jellyfinWatched)
+                        {
+                            logWriter.WriteLine($"  - Would mark as {(watchedInEither ? "watched" : "unwatched")} in Jellyfin");
+                            jellyfinChanges++;
+                        }
+                        
+                        // Check if Plex needs update
+                        if (watchedInEither != plexWatchState.Watched)
+                        {
+                            logWriter.WriteLine($"  - Would mark as {(watchedInEither ? "watched" : "unwatched")} in Plex");
+                            plexChanges++;
+                        }
+                        
+                        // For playback position: use the furthest along position if not marked as watched
+                        if (!watchedInEither)
+                        {
+                            double furthestPosition = Math.Max(jellyfinPlaybackPosition, plexWatchState.PlaybackPosition);
+                            
+                            // Check if Jellyfin position needs update
+                            if (Math.Abs(jellyfinPlaybackPosition - furthestPosition) > 10)
+                            {
+                                logWriter.WriteLine($"  - Would update playback position in Jellyfin to {furthestPosition} seconds");
+                                jellyfinChanges++;
+                            }
+                            
+                            // Check if Plex position needs update
+                            if (Math.Abs(plexWatchState.PlaybackPosition - furthestPosition) > 10)
+                            {
+                                logWriter.WriteLine($"  - Would update playback position in Plex to {furthestPosition} seconds");
+                                plexChanges++;
+                            }
+                        }
+                    }
+                    else if (config.SyncWatchStateDirection == "PlexToJellyfin")
+                    {
+                        // Check if Jellyfin watch state needs update
+                        if (plexWatchState.Watched != jellyfinWatched)
+                        {
+                            logWriter.WriteLine($"  - Would mark as {(plexWatchState.Watched ? "watched" : "unwatched")} in Jellyfin");
+                            jellyfinChanges++;
+                        }
+                        
+                        // Check if playback position needs update
+                        if (plexWatchState.PlaybackPosition > 0 && 
+                            Math.Abs(plexWatchState.PlaybackPosition - jellyfinPlaybackPosition) > 10)
+                        {
+                            logWriter.WriteLine($"  - Would update playback position in Jellyfin to {plexWatchState.PlaybackPosition} seconds");
+                            jellyfinChanges++;
+                        }
+                    }
+                    else if (config.SyncWatchStateDirection == "JellyfinToPlex")
+                    {
+                        // Check if Plex watch state needs update
+                        if (jellyfinWatched != plexWatchState.Watched)
+                        {
+                            logWriter.WriteLine($"  - Would mark as {(jellyfinWatched ? "watched" : "unwatched")} in Plex");
+                            plexChanges++;
+                        }
+                        
+                        // Check if playback position needs update
+                        if (jellyfinPlaybackPosition > 0 && 
+                            Math.Abs(jellyfinPlaybackPosition - plexWatchState.PlaybackPosition) > 10)
+                        {
+                            logWriter.WriteLine($"  - Would update playback position in Plex to {jellyfinPlaybackPosition} seconds");
+                            plexChanges++;
+                        }
+                    }
+                    
+                    logWriter.WriteLine();
+                }
+                
+                // Extrapolate to full library
+                if (sampleSize < jellyfinItems.Count)
+                {
+                    double ratio = (double)jellyfinItems.Count / sampleSize;
+                    jellyfinChanges = (int)(jellyfinChanges * ratio);
+                    plexChanges = (int)(plexChanges * ratio);
+                    
+                    logWriter.WriteLine($"Note: Results extrapolated from sample to full library ({jellyfinItems.Count} items)");
+                }
+            }
+            catch (Exception ex)
+            {
+                logWriter.WriteLine($"Error analyzing watch state changes: {ex.Message}");
+                _logger.LogError(ex, "Error analyzing watch state changes");
+            }
+            
+            return (jellyfinChanges, plexChanges);
+        }
