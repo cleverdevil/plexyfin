@@ -166,7 +166,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             int count = 0;
             foreach (var collection in collections)
             {
-                await _collectionManager.RemoveFromCollectionAsync(collection.Id, Array.Empty<Guid>()).ConfigureAwait(false);
+                await _collectionManager.RemoveFromCollectionAsync(collection.Id, Array.Empty<string>()).ConfigureAwait(false);
                 count++;
             }
             
