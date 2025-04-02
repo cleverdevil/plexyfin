@@ -166,7 +166,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             int count = 0;
             foreach (var collection in collections)
             {
-                await _collectionManager.RemoveFromCollectionAsync(collection.Id, Array.Empty<string>()).ConfigureAwait(false);
+                await _collectionManager.RemoveFromCollectionAsync(collection.Id, Array.Empty<Guid>()).ConfigureAwait(false);
                 count++;
             }
             
@@ -227,7 +227,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         var collectionId = await _collectionManager.CreateCollectionAsync(new MediaBrowser.Controller.Collections.CollectionCreationOptions
                         {
                             Name = collection.Title,
-                            ItemIdList = jellyfinItems.Select(id => id.ToString()).ToList(),
+                            ItemIdList = jellyfinItems,
                             IsLocked = true
                         }).ConfigureAwait(false);
                         
