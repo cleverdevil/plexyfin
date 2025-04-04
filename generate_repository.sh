@@ -9,12 +9,12 @@ PLUGIN_OWNER="cleverdevil"
 PLUGIN_CATEGORY="Metadata"
 REPO_URL="https://cleverdevil.github.io/plexyfin"
 DOWNLOAD_URL="https://github.com/cleverdevil/plexyfin/releases/download"
-TARGET_ABI="10.8.0.0"
+TARGET_ABI="10.9.9.0"
 
 # Paths
 REPO_DIR="repository"
 VERSIONS_DIR="$REPO_DIR/versions/plexyfin"
-PLUGIN_DLL="Jellyfin.Plugin.Plexyfin/bin/Debug/net6.0/Jellyfin.Plugin.Plexyfin.dll"
+PLUGIN_DLL="dist/Plexyfin_0.3.0.0/Jellyfin.Plugin.Plexyfin.dll"
 
 # Check if plugin DLL exists
 if [ ! -f "$PLUGIN_DLL" ]; then
@@ -23,11 +23,8 @@ if [ ! -f "$PLUGIN_DLL" ]; then
     exit 1
 fi
 
-# Get version from assembly or use default
-if [ -z "$VERSION" ]; then
-    echo "Could not determine version from assembly. Using default 0.2.0.0"
-    VERSION="0.2.0.0"
-fi
+# Set the version
+VERSION="0.3.0.0"
 
 # Generate SHA512 checksum
 CHECKSUM=$(shasum -a 512 "$PLUGIN_DLL" | awk '{ print $1 }')
