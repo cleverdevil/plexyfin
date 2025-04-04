@@ -199,12 +199,182 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Episode }
                     };
                     
-                    // Only apply library filtering if libraries are selected
+                    // Get all items first to map properly
                     var allItems = _libraryManager.GetItemList(itemsQuery).ToList();
                     
-                    // Count the total number of items
-                    int totalItems = allItems.Count;
-                    int moviesCount = allItems.Count(i => i is Movie);
+                    // If libraries are selected, filter the items to only include those in selected libraries
+                    List<BaseItem> filteredItems = allItems;
+                    if (selectedLibraries.Count > 0)
+                    {
+                        _logger.LogInformation("Filtering watch state sync to {Count} selected libraries", selectedLibraries.Count);
+                        
+                        // Get all Plex libraries to map Plex library IDs to names                            
+                        var plexLibs = new PlexClient(_httpClientFactory, _logger, plexServerUri, config.PlexApiToken, config);
+                        var plexLibraries = await plexLibs.GetLibraries().ConfigureAwait(false);
+                        
+                        // Log selected libraries for debugging
+                        foreach (var libId in selectedLibraries)
+                        {
+                            var libName = plexLibraries.FirstOrDefault(l => l.Id == libId)?.Title ?? "Unknown";
+                            _logger.LogDebug("Selected library: {LibraryId} ({LibraryName})", libId, libName);
+                        }
+                        
+                        // We need to filter the items based on which library they belong to in Plex
+                        // Items in Jellyfin don't have a direct mapping to Plex libraries, so we need
+                        // to find a way to match them based on the selected Plex libraries.
+                        
+                        // For now, we'll filter based on the parent folder/library name in Jellyfin,
+                        // which often corresponds reasonably well with Plex library names
+                        List<string> selectedLibraryNames = new List<string>();
+                        foreach (var libId in selectedLibraries)
+                        {
+                            var libName = plexLibraries.FirstOrDefault(l => l.Id == libId)?.Title;
+                            if (!string.IsNullOrEmpty(libName))
+                            {
+                                selectedLibraryNames.Add(libName);
+                                _logger.LogInformation("Will include items from Jellyfin libraries that match: {LibName}", libName);
+                            }
+                        }
+                        
+                        if (selectedLibraryNames.Count > 0)
+                        {
+                            // Collect all library names in Jellyfin first - log them for debugging
+                            var jellyfinLibraries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                            foreach (var item in allItems)
+                            {
+                                var libraryName = GetItemLibraryName(item);
+                                if (!string.IsNullOrEmpty(libraryName))
+                                {
+                                    jellyfinLibraries.Add(libraryName);
+                                }
+                            }
+                            
+                            // Log all Jellyfin libraries we found
+                            _logger.LogInformation("Found {Count} Jellyfin libraries: {Libraries}", 
+                                jellyfinLibraries.Count, 
+                                string.Join(", ", jellyfinLibraries));
+                                
+                            // Log all selected Plex libraries again for easy comparison
+                            _logger.LogInformation("Selected Plex libraries: {Libraries}",
+                                string.Join(", ", selectedLibraryNames));
+                            
+                            // Create a map of Jellyfin libraries to their best matching Plex library
+                            var libraryMatches = new Dictionary<string, (string PlexLibrary, double Score)>(StringComparer.OrdinalIgnoreCase);
+                            
+                            // First try direct matches
+                            foreach (var jellyfinLib in jellyfinLibraries)
+                            {
+                                // First pass: look for exact matches (ignoring case)
+                                var exactMatch = selectedLibraryNames.FirstOrDefault(p => 
+                                    p.Equals(jellyfinLib, StringComparison.OrdinalIgnoreCase));
+                                    
+                                if (exactMatch != null)
+                                {
+                                    libraryMatches[jellyfinLib] = (exactMatch, 1.0); // Perfect match score
+                                    _logger.LogDebug("Exact match: Jellyfin '{JellyfinLib}' = Plex '{PlexLib}'", 
+                                        jellyfinLib, exactMatch);
+                                    continue; // Skip to next library
+                                }
+                                
+                                // Second pass: look for containment matches
+                                var containmentMatch = selectedLibraryNames.FirstOrDefault(p => 
+                                    jellyfinLib.Contains(p, StringComparison.OrdinalIgnoreCase) || 
+                                    p.Contains(jellyfinLib, StringComparison.OrdinalIgnoreCase));
+                                    
+                                if (containmentMatch != null)
+                                {
+                                    // Calculate a score based on the length of the matching text vs. total length
+                                    double score = Math.Min(jellyfinLib.Length, containmentMatch.Length) / 
+                                                  (double)Math.Max(jellyfinLib.Length, containmentMatch.Length);
+                                    libraryMatches[jellyfinLib] = (containmentMatch, score);
+                                    _logger.LogDebug("Containment match: Jellyfin '{JellyfinLib}' ~ Plex '{PlexLib}' (score: {Score:F2})", 
+                                        jellyfinLib, containmentMatch, score);
+                                    continue;
+                                }
+                                
+                                // Third pass: try to match by splitting the names and comparing parts
+                                var bestFuzzyMatch = "";
+                                double bestScore = 0.0;
+                                
+                                // Split library names into words and check for matching words
+                                var jellyfinWords = SplitIntoWords(jellyfinLib);
+                                
+                                foreach (var plexLib in selectedLibraryNames)
+                                {
+                                    var plexWords = SplitIntoWords(plexLib);
+                                    
+                                    // Count matching words
+                                    int matchingWords = jellyfinWords.Intersect(plexWords, StringComparer.OrdinalIgnoreCase).Count();
+                                    
+                                    if (matchingWords > 0)
+                                    {
+                                        // Calculate score based on percentage of matching words
+                                        double score = matchingWords / (double)Math.Max(jellyfinWords.Count, plexWords.Count);
+                                        
+                                        if (score > bestScore)
+                                        {
+                                            bestScore = score;
+                                            bestFuzzyMatch = plexLib;
+                                        }
+                                    }
+                                }
+                                
+                                // If we found a fuzzy match with at least one matching word
+                                if (bestScore > 0.1) // Set a minimum threshold
+                                {
+                                    libraryMatches[jellyfinLib] = (bestFuzzyMatch, bestScore);
+                                    _logger.LogDebug("Fuzzy word match: Jellyfin '{JellyfinLib}' ~ Plex '{PlexLib}' (score: {Score:F2})", 
+                                        jellyfinLib, bestFuzzyMatch, bestScore);
+                                }
+                            }
+                            
+                            // Build the list of matched Jellyfin libraries
+                            var matchedLibraries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                            foreach (var match in libraryMatches)
+                            {
+                                matchedLibraries.Add(match.Key);
+                                _logger.LogInformation("Matched Jellyfin library '{JellyfinLib}' to Plex library '{PlexLib}' (score: {Score:F2})",
+                                    match.Key, match.Value.PlexLibrary, match.Value.Score);
+                            }
+                            
+                            // If no libraries matched, this would filter everything out - add a safeguard
+                            if (matchedLibraries.Count == 0)
+                            {
+                                _logger.LogWarning("No Jellyfin libraries matched any selected Plex libraries. Using all items to prevent complete filtering.");
+                                filteredItems = allItems; // Use all items to avoid filtering everything out
+                            }
+                            else
+                            {
+                                // Filter items based on matched library names
+                                filteredItems = allItems.Where(item => {
+                                    var libraryName = GetItemLibraryName(item);
+                                    
+                                    // Match against our pre-computed matched libraries
+                                    bool match = !string.IsNullOrEmpty(libraryName) && matchedLibraries.Contains(libraryName);
+                                    
+                                    return match;
+                                }).ToList();
+                                
+                                // If we still ended up with zero items (unlikely but possible), use all items
+                                if (filteredItems.Count == 0)
+                                {
+                                    _logger.LogWarning("Filtering resulted in zero items. Using all items instead.");
+                                    filteredItems = allItems;
+                                }
+                            }
+                            
+                            _logger.LogInformation("Filtered {FilteredCount} items out of {TotalCount} based on selected libraries",
+                                filteredItems.Count, allItems.Count);
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogInformation("No libraries selected, processing all {Count} items for watch state sync", allItems.Count);
+                    }
+                    
+                    // Count the total number of items AFTER filtering
+                    int totalItems = filteredItems.Count;
+                    int moviesCount = filteredItems.Count(i => i is Movie);
                     int episodesCount = totalItems - moviesCount;
                     
                     if (syncStatus != null)
@@ -222,27 +392,6 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         syncStatus.Progress = 50;
                     }
                     
-                    // If libraries are selected, filter the items to only include those in selected libraries
-                    if (selectedLibraries.Count > 0)
-                    {
-                        _logger.LogInformation("Filtering watch state sync to {Count} selected libraries", selectedLibraries.Count);
-                        
-                        // Get all Plex libraries to map Plex library IDs to names                            
-                        var plexLibs = new PlexClient(_httpClientFactory, _logger, plexServerUri, config.PlexApiToken, config);
-                        var plexLibraries = await plexLibs.GetLibraries().ConfigureAwait(false);
-                        
-                        // Log selected libraries for debugging
-                        foreach (var libId in selectedLibraries)
-                        {
-                            var libName = plexLibraries.FirstOrDefault(l => l.Id == libId)?.Title ?? "Unknown";
-                            _logger.LogDebug("Selected library: {LibraryId} ({LibraryName})", libId, libName);
-                        }
-                    }
-                    else
-                    {
-                        _logger.LogInformation("No libraries selected, processing all items for watch state sync");
-                    }
-                    
                     // Create watch state manager
                     var watchStateManager = new PlexWatchStateManager(
                         _logger,
@@ -250,6 +399,9 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         _userManager,
                         _userDataManager,
                         syncStatus);  // Pass the sync status object for progress tracking
+                        
+                    // Log information about the filtered items
+                    _logger.LogInformation("Proceeding with sync using {Count} filtered items", filteredItems.Count);
                         
                     // Sync watch states
                     var watchStateServerUri = string.IsNullOrEmpty(config.PlexServerUrl) 
@@ -260,7 +412,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     {
                         // If in dry run mode, preview changes instead of applying them
                         var watchStateChanges = await watchStateManager.PreviewWatchStateChangesAsync(
-                            allItems,
+                            filteredItems, // Use the filtered items list
                             watchStateServerUri,
                             config.PlexApiToken,
                             config.SyncWatchStateDirection).ConfigureAwait(false);
@@ -286,7 +438,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     {
                         // Actually apply the changes
                         await watchStateManager.SyncWatchStateAsync(
-                            allItems,
+                            filteredItems, // Use the filtered items list
                             watchStateServerUri,
                             config.PlexApiToken,
                             config.SyncWatchStateDirection).ConfigureAwait(false);
@@ -890,6 +1042,49 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         }
         
         /// <summary>
+        /// Helper method to get the library name for an item by traversing up the parent chain
+        /// </summary>
+        /// <param name="item">The item to find the library for</param>
+        /// <returns>The library name or null if not found</returns>
+        private string? GetItemLibraryName(BaseItem item)
+        {
+            try
+            {
+                // Track the current parent item as we walk up the tree
+                BaseItem? current = item;
+                
+                // To prevent infinite loops in case of circular references
+                int maxDepth = 10;
+                int depth = 0;
+                
+                // Keep going up the parent chain until we reach the root or hit maxDepth
+                while (current != null && depth < maxDepth)
+                {
+                    // Try to get the parent using the GetParent method
+                    var parent = current.GetParent();
+                    
+                    // If parent is null, current might be a top-level item like a library
+                    if (parent == null)
+                    {
+                        return current.Name;
+                    }
+                    
+                    // Move up to the parent for the next iteration
+                    current = parent;
+                    depth++;
+                }
+                
+                // If we get here and current is not null, return its name
+                return current?.Name;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting library name for item {ItemName}", item.Name);
+                return null;
+            }
+        }
+        
+        /// <summary>
         /// Gets the MIME type based on a file URL's extension.
         /// </summary>
         /// <param name="url">The URL to analyze.</param>
@@ -937,6 +1132,51 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             }
             
             return mimeType;
+        }
+        
+        /// <summary>
+        /// Splits a library name into individual words for comparison
+        /// </summary>
+        /// <param name="input">The library name to split</param>
+        /// <returns>A list of individual words</returns>
+        private List<string> SplitIntoWords(string input)
+        {
+            if (string.IsNullOrEmpty(input))
+            {
+                return new List<string>();
+            }
+            
+            // Split by common word separators:
+            // - Space
+            // - Underscore
+            // - Dash
+            // - Period
+            // - Comma
+            var result = input
+                .Split(new[] { ' ', '_', '-', '.', ',', '(', ')', '[', ']', '{', '}' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(word => word.Trim())
+                .Where(word => !string.IsNullOrEmpty(word))
+                .ToList();
+                
+            // Remove common words that don't help with matching:
+            // "the", "and", "or", "of", etc.
+            var stopWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "the", "and", "or", "of", "in", "a", "an", "is", "to", "by", "for", "with"
+            };
+            
+            // Also remove common words used in library names
+            stopWords.Add("library");
+            stopWords.Add("movies");
+            stopWords.Add("shows");
+            stopWords.Add("tv");
+            stopWords.Add("series");
+            stopWords.Add("collection");
+            stopWords.Add("collections");
+            
+            return result
+                .Where(word => !stopWords.Contains(word))
+                .ToList();
         }
         
 
