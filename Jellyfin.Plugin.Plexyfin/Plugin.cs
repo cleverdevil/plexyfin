@@ -72,7 +72,7 @@ namespace Jellyfin.Plugin.Plexyfin
         public string Key => "PlexyfinSync";
 
         /// <inheritdoc />
-        public string Description => "Syncs collections and playlists from Plex to Jellyfin.";
+        public string Description => "Syncs collections from Plex to Jellyfin.";
 
         /// <inheritdoc />
         public string Category => "Plexyfin";
@@ -82,15 +82,15 @@ namespace Jellyfin.Plugin.Plexyfin
         {
             // Check if sync is enabled in config
             var config = Plugin.Instance.Configuration;
-            if (!config.SyncCollections && !config.SyncPlaylists)
+            if (!config.SyncCollections)
             {
-                _logger.LogInformation("Scheduled sync skipped because neither collections nor playlists are enabled for sync");
+                _logger.LogInformation("Scheduled sync skipped because collections sync is not enabled");
                 progress.Report(100);
                 return;
             }
 
             // Validate Plex configuration
-            if (string.IsNullOrEmpty(config.PlexServerUrl) || string.IsNullOrEmpty(config.PlexApiToken))
+            if (config.PlexServerUrl == null || string.IsNullOrEmpty(config.PlexApiToken))
             {
                 _logger.LogWarning("Scheduled sync skipped because Plex server URL or API token are not configured");
                 progress.Report(100);
@@ -185,6 +185,12 @@ namespace Jellyfin.Plugin.Plexyfin
         /// Gets the current plugin instance.
         /// </summary>
         public static Plugin Instance { get; private set; } = null!; // Will be initialized in constructor
+        
+        /// <summary>
+        /// Gets or sets the last sync result.
+        /// Used for sharing data between API endpoints.
+        /// </summary>
+        public SyncResult SyncResult { get; set; } = new SyncResult();
         
         // We don't need to override the ApplicationPaths property anymore since we're not using it directly
 

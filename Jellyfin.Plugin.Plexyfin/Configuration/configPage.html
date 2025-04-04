@@ -2,6 +2,48 @@
 <html>
 <head>
     <title>Plexyfin</title>
+    <style>
+        /* Progress bar styling */
+        .progress-container {
+            width: 100%;
+            background-color: #f3f3f3;
+            border-radius: 6px;
+            margin: 15px 0;
+            padding: 15px;
+            display: none;
+            border: 1px solid #ddd;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .progress-bar {
+            height: 24px;
+            background-color: #00a4dc;
+            border-radius: 4px;
+            text-align: center;
+            color: white;
+            line-height: 24px;
+            font-weight: bold;
+            transition: width 0.3s ease;
+        }
+        .progress-status {
+            margin-top: 10px;
+            padding: 8px;
+            font-size: 15px;
+            background-color: #e9f7fd;
+            border-left: 4px solid #00a4dc;
+            border-radius: 0 4px 4px 0;
+        }
+        .progress-elapsed {
+            margin-top: 10px;
+            padding: 8px 12px;
+            font-size: 14px;
+            color: #555;
+            font-weight: 500;
+            background-color: #f7f3e9;
+            border-left: 4px solid #f9b115;
+            border-radius: 0 4px 4px 0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+    </style>
 </head>
 <body>
     <div id="Plexyfin" data-role="page" class="page type-interior pluginConfigurationPage">
@@ -77,15 +119,7 @@
                             When enabled, collections from Plex will be synced to Jellyfin.
                         </div>
                         
-                        <div class="checkboxContainer">
-                            <label>
-                                <input type="checkbox" id="SyncPlaylists" />
-                                <span>Sync Playlists from Plex</span>
-                            </label>
-                        </div>
-                        <div class="fieldDescription" style="margin-left: 25px; font-size: 90%; margin-bottom: 15px;">
-                            When enabled, playlists from Plex will be synced to Jellyfin.
-                        </div>
+                        <!-- Playlist sync feature removed -->
                         
                         <div class="checkboxContainer">
                             <label>
@@ -118,6 +152,7 @@
                         </div>
                         <div class="fieldDescription" style="margin-left: 25px; font-size: 90%; margin-bottom: 15px;">
                             When enabled, watched/unwatched status will be synchronized between Plex and Jellyfin.
+                            Only items in the selected libraries will be synchronized.
                         </div>
                         
                         <div class="inputContainer" id="watchStateDirectionContainer" style="margin-left: 25px; display: none;">
@@ -168,14 +203,7 @@
                             This can help with troubleshooting but uses more disk space.
                         </div>
                         
-                        <div class="inputContainer">
-                            <label for="MaxUrlPatternAttempts">Max URL Pattern Attempts:</label>
-                            <input id="MaxUrlPatternAttempts" name="MaxUrlPatternAttempts" type="number" min="1" max="10" step="1" />
-                            <div class="fieldDescription" style="font-size: 90%; margin-bottom: 15px;">
-                                Maximum number of URL patterns to try when fetching collection items. Lower values improve performance
-                                but may reduce compatibility with some Plex servers. Default: 3
-                            </div>
-                        </div>
+                        <!-- MaxUrlPatternAttempts setting removed as it's no longer needed -->
                     </div>
                     
                     <div class="verticalSection">
@@ -192,6 +220,22 @@
                             <button is="emby-button" type="button" class="raised" id="btnSyncNow" style="margin-left: 10px;">
                                 <span>Sync Now</span>
                             </button>
+                            
+                            <button is="emby-button" type="button" class="raised" id="btnDryRun" style="margin-left: 10px;">
+                                <span>Dry Run (Preview Changes)</span>
+                            </button>
+                        </div>
+                        
+                        <div class="fieldDescription" style="margin-top: 10px;">
+                            "Sync Now" will immediately sync collections and watch states based on your settings.<br>
+                            "Dry Run" will show what changes would be made without actually applying them.
+                        </div>
+                        
+                        <!-- Progress tracking UI -->
+                        <div class="progress-container" id="syncProgressContainer">
+                            <div class="progress-bar" id="syncProgressBar">0%</div>
+                            <div class="progress-status" id="syncProgressStatus">Initializing...</div>
+                            <div class="progress-elapsed" id="syncProgressElapsed"></div>
                         </div>
                         
                         <div class="padded-top" style="margin-top: 1em;">
@@ -205,7 +249,9 @@
         <script type="text/javascript">
             var PlexyfinConfig = {
                 pluginUniqueId: 'b9f0c474-e9a8-4292-ae41-eb3c1542f4cd',
-                selectedLibraryIds: [] // Will store the selected library IDs
+                selectedLibraryIds: [], // Will store the selected library IDs
+                activeSyncId: null,    // ID of the current sync operation
+                syncPollInterval: null // Interval for polling sync status
             };
 
             document.querySelector('.plexyfinconfigurationForm')
@@ -221,12 +267,12 @@
                 
             document.querySelector('#btnSyncNow')
                 .addEventListener('click', function() {
-                    syncFromPlex();
+                    startSync(false);
                 });
                 
             document.querySelector('#btnDryRun')
                 .addEventListener('click', function() {
-                    dryRunSync();
+                    startSync(true);
                 });
                 
             document.querySelector('#btnTestConnection')
@@ -292,7 +338,7 @@
                 
                 ApiClient.ajax({
                     type: 'GET',
-                    url: ApiClient.getUrl('/Plexyfin/TestPlexConnection') + 
+                    url: ApiClient.getUrl('/Plexyfin/test-connection') + 
                          '?url=' + encodeURIComponent(url) + 
                          '&token=' + encodeURIComponent(token),
                     dataType: 'json'
@@ -347,8 +393,8 @@
                 
                 // Update the global selected libraries
                 PlexyfinConfig.selectedLibraryIds = libraries
-                    .filter(lib => lib.isSelected || lib.IsSelected)
-                    .map(lib => lib.id || lib.Id);
+                    .filter(lib => lib.isSelected === true || lib.IsSelected === true)
+                    .map(lib => lib.id || lib.Id || "");
                 
                 // Create a checkbox for each library
                 libraries.forEach(function(library, index) {
@@ -360,11 +406,11 @@
                     // Debug this specific library
                     console.log(`Building UI for library ${index}:`, library);
                     
-                    // Get properties with proper casing (ASP.NET Core serializes to camelCase)
-                    const libraryId = library.id || '';
-                    const libraryTitle = library.title || '';
-                    const libraryType = library.type || '';
-                    const isSelected = library.isSelected === true;
+                    // Get properties with proper casing (handle both cases since JSON serialization can vary)
+                    const libraryId = library.id || library.Id || '';
+                    const libraryTitle = library.title || library.Title || '';
+                    const libraryType = library.type || library.Type || '';
+                    const isSelected = library.isSelected === true || library.IsSelected === true;
                     
                     console.log(`Library ${index} parsed values:`, {
                         id: libraryId,
@@ -478,26 +524,157 @@
                 });
             }
             
-            function syncFromPlex() {
-                Dashboard.showLoadingMsg();
+            function startSync(isDryRun) {
+                // Clear any existing sync state
+                clearInterval(PlexyfinConfig.syncPollInterval);
+                PlexyfinConfig.activeSyncId = null;
                 
+                // Clear result message
+                document.querySelector('#saveResult').innerText = '';
+                
+                // Show progress bar
+                const progressContainer = document.querySelector('#syncProgressContainer');
+                const progressBar = document.querySelector('#syncProgressBar');
+                const progressStatus = document.querySelector('#syncProgressStatus');
+                const progressElapsed = document.querySelector('#syncProgressElapsed');
+                
+                progressContainer.style.display = 'block';
+                progressBar.style.width = '0%';
+                progressBar.textContent = '0%';
+                progressStatus.textContent = isDryRun ? 'Starting dry run...' : 'Starting sync...';
+                progressElapsed.textContent = '';
+                
+                // Disable buttons
+                document.querySelector('#btnSyncNow').disabled = true;
+                document.querySelector('#btnDryRun').disabled = true;
+                
+                // Start the sync operation
                 ApiClient.ajax({
                     type: 'POST',
-                    url: ApiClient.getUrl('/Plexyfin/SyncFromPlex'),
+                    url: ApiClient.getUrl('/Plexyfin/' + (isDryRun ? 'DryRunSync' : 'sync')),
                     dataType: 'json'
                 }).then(function(result) {
-                    Dashboard.hideLoadingMsg();
-                    let message = 'Sync completed successfully! ';
-                    if (result.CollectionsAdded > 0 || result.CollectionsUpdated > 0) {
-                        message += `Added ${result.CollectionsAdded} collections, updated ${result.CollectionsUpdated} collections.`;
+                    if (!result.success) {
+                        showMessage(result.error || 'Failed to start sync operation', true);
+                        progressContainer.style.display = 'none';
+                        document.querySelector('#btnSyncNow').disabled = false;
+                        document.querySelector('#btnDryRun').disabled = false;
+                        return;
                     }
-                    if (result.PlaylistsAdded > 0 || result.PlaylistsUpdated > 0) {
-                        message += ` Added ${result.PlaylistsAdded} playlists, updated ${result.PlaylistsUpdated} playlists.`;
-                    }
-                    showMessage(message, false);
+                    
+                    console.log('Sync operation started with ID:', result.syncId);
+                    PlexyfinConfig.activeSyncId = result.syncId;
+                    
+                    // Start polling for status
+                    PlexyfinConfig.syncPollInterval = setInterval(function() {
+                        pollSyncStatus(isDryRun);
+                    }, 1000); // Poll every second
+                    
                 }, function(error) {
-                    Dashboard.hideLoadingMsg();
-                    showMessage('Error syncing from Plex: ' + error.status + ' ' + error.statusText, true);
+                    showMessage('Error starting ' + (isDryRun ? 'dry run' : 'sync') + ': ' + error.status + ' ' + error.statusText, true);
+                    progressContainer.style.display = 'none';
+                    document.querySelector('#btnSyncNow').disabled = false;
+                    document.querySelector('#btnDryRun').disabled = false;
+                });
+            }
+            
+            function pollSyncStatus(isDryRun) {
+                if (!PlexyfinConfig.activeSyncId) return;
+                
+                ApiClient.ajax({
+                    type: 'GET',
+                    url: ApiClient.getUrl('/Plexyfin/sync-status/' + PlexyfinConfig.activeSyncId),
+                    dataType: 'json'
+                }).then(function(status) {
+                    if (!status.success) {
+                        clearInterval(PlexyfinConfig.syncPollInterval);
+                        showMessage('Error: ' + status.message, true);
+                        document.querySelector('#syncProgressContainer').style.display = 'none';
+                        document.querySelector('#btnSyncNow').disabled = false;
+                        document.querySelector('#btnDryRun').disabled = false;
+                        return;
+                    }
+                    
+                    // Update progress
+                    const progressBar = document.querySelector('#syncProgressBar');
+                    const progressStatus = document.querySelector('#syncProgressStatus');
+                    const progressElapsed = document.querySelector('#syncProgressElapsed');
+                    
+                    // For collection syncs, just show the message
+                    if (status.totalItems === 0 || status.message.includes("collections")) {
+                        // Hide progress percentage for collection syncs (they're usually quick)
+                        progressBar.style.width = '100%';
+                        progressBar.textContent = 'In progress...';
+                    } else {
+                        // For watch state syncs, show detailed progress based on items remaining
+                        let percentComplete = 0;
+                        
+                        if (status.totalItems > 0) {
+                            percentComplete = Math.floor((status.processedItems / status.totalItems) * 100);
+                        } else {
+                            percentComplete = status.progress;
+                        }
+                        
+                        progressBar.style.width = percentComplete + '%';
+                        progressBar.textContent = percentComplete + '%';
+                    }
+                    
+                    // Set status message
+                    progressStatus.textContent = status.message;
+                    
+                    // Format elapsed time
+                    const elapsed = status.elapsedSeconds;
+                    const minutes = Math.floor(elapsed / 60);
+                    const seconds = Math.floor(elapsed % 60);
+                    
+                    // Add remaining items info if available
+                    let timeText = "Time elapsed: " + minutes + " min " + seconds + " sec";
+                    
+                    if (status.totalItems > 0 && status.remainingItems > 0) {
+                        timeText += " | " + status.remainingItems + " of " + status.totalItems + " items remaining";
+                    }
+                    
+                    progressElapsed.textContent = timeText;
+                    
+                    // Check if sync is complete
+                    if (status.isComplete) {
+                        clearInterval(PlexyfinConfig.syncPollInterval);
+                        
+                        // Re-enable buttons
+                        document.querySelector('#btnSyncNow').disabled = false;
+                        document.querySelector('#btnDryRun').disabled = false;
+                        
+                        // Hide progress bar after 5 seconds
+                        setTimeout(() => {
+                            document.querySelector('#syncProgressContainer').style.display = 'none';
+                        }, 5000);
+                        
+                        // Show completion message
+                        if (status.result) {
+                            let message = isDryRun ? 'Dry run completed successfully. ' : 'Sync completed successfully. ';
+                            
+                            if (status.result.collectionsAdded > 0 || status.result.collectionsUpdated > 0) {
+                                message += `${isDryRun ? 'Would add' : 'Added'} ${status.result.collectionsAdded} collections, ${isDryRun ? 'would update' : 'updated'} ${status.result.collectionsUpdated} collections. `;
+                            }
+                            
+                            if (status.result.details && status.result.details.watchStatesChanged) {
+                                const watchCount = status.result.details.watchStatesChanged.length;
+                                message += `${isDryRun ? 'Would change' : 'Changed'} ${watchCount} watch states.`;
+                            }
+                            
+                            showMessage(message, false);
+                            
+                            // For dry run, show the detailed report
+                            if (isDryRun && status.result.details) {
+                                generateDryRunReport(status.result.details);
+                            }
+                        } else {
+                            showMessage('Operation completed but no results were returned', false);
+                        }
+                    }
+                }, function(error) {
+                    console.error('Error polling sync status:', error);
+                    // Don't stop polling on temporary errors
                 });
             }
             
@@ -510,7 +687,7 @@
                     config.PlexServerUrl = document.querySelector('#PlexServerUrl').value;
                     config.PlexApiToken = document.querySelector('#PlexApiToken').value;
                     config.SyncCollections = document.querySelector('#SyncCollections').checked;
-                    config.SyncPlaylists = document.querySelector('#SyncPlaylists').checked;
+                    // SyncPlaylists setting removed
                     config.DeleteBeforeSync = document.querySelector('#DeleteBeforeSync').checked;
                     config.SyncArtwork = document.querySelector('#SyncArtwork').checked;
                     config.EnableScheduledSync = document.querySelector('#EnableScheduledSync').checked;
@@ -527,14 +704,7 @@
                     }
                     config.SyncIntervalHours = syncInterval;
                     
-                    // Parse the max URL pattern attempts
-                    var maxAttempts = parseInt(document.querySelector('#MaxUrlPatternAttempts').value);
-                    if (isNaN(maxAttempts) || maxAttempts < 1) {
-                        maxAttempts = 3; // Default to 3 if invalid
-                    } else if (maxAttempts > 10) {
-                        maxAttempts = 10; // Cap at 10
-                    }
-                    config.MaxUrlPatternAttempts = maxAttempts;
+                    // MaxUrlPatternAttempts setting removed as it's no longer needed
                     
                     // Make sure selected libraries are included
                     config.SelectedLibraries = PlexyfinConfig.selectedLibraryIds;
@@ -554,13 +724,13 @@
                 document.querySelector('#PlexServerUrl').value = config.PlexServerUrl || '';
                 document.querySelector('#PlexApiToken').value = config.PlexApiToken || '';
                 document.querySelector('#SyncCollections').checked = config.SyncCollections;
-                document.querySelector('#SyncPlaylists').checked = config.SyncPlaylists;
+                // SyncPlaylists setting removed
                 document.querySelector('#DeleteBeforeSync').checked = config.DeleteBeforeSync;
                 document.querySelector('#SyncArtwork').checked = config.SyncArtwork;
                 document.querySelector('#EnableScheduledSync').checked = config.EnableScheduledSync;
                 document.querySelector('#SyncIntervalHours').value = config.SyncIntervalHours || 24;
                 document.querySelector('#EnableDebugMode').checked = config.EnableDebugMode || false;
-                document.querySelector('#MaxUrlPatternAttempts').value = config.MaxUrlPatternAttempts || 3;
+                // MaxUrlPatternAttempts setting removed as it's no longer needed
                 document.querySelector('#SyncWatchState').checked = config.SyncWatchState || false;
                 document.querySelector('#SyncWatchStateDirection').value = config.SyncWatchStateDirection || 'PlexToJellyfin';
                 
@@ -577,51 +747,122 @@
                 
                 Dashboard.hideLoadingMsg();
             });
+            
+            function generateDryRunReport(details) {
+                // Get current date and timestamp for the report
+                var now = new Date();
+                var timestamp = now.toISOString().replace('T', ' ').substring(0, 19);
+                
+                // Make sure we access properties correctly from the API response
+                var addCount = details.collectionsToAdd?.length || 0;
+                var updateCount = details.collectionsToUpdate?.length || 0;
+                var watchCount = details.watchStatesChanged?.length || 0;
+                var totalChanges = addCount + updateCount + watchCount;
+                
+                // Create HTML parts separately to avoid template string issues
+                
+                // Head section with styles
+                var head = '<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Plexyfin Dry Run Report - ' + timestamp + '</title>\n    <style>\n        /* Base styles */\n        body {\n            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;\n            line-height: 1.6;\n            color: #333;\n            max-width: 1200px;\n            margin: 0 auto;\n            padding: 20px;\n            background-color: #f5f5f5;\n        }\n        \n        /* Header styles */\n        .header {\n            background-color: #00a4dc;\n            color: white;\n            padding: 20px;\n            border-radius: 5px;\n            margin-bottom: 20px;\n            box-shadow: 0 2px 5px rgba(0,0,0,0.1);\n        }\n        \n        .header h1 {\n            margin: 0;\n            font-size: 24px;\n        }\n        \n        .header p {\n            margin: 5px 0 0 0;\n            opacity: 0.9;\n        }\n        \n        /* Summary section */\n        .summary {\n            background-color: #e9f7fd;\n            border-left: 4px solid #00a4dc;\n            padding: 15px;\n            margin-bottom: 25px;\n            border-radius: 0 5px 5px 0;\n        }\n        \n        /* Section styles */\n        .section {\n            background-color: white;\n            border-radius: 5px;\n            padding: 20px;\n            margin-bottom: 25px;\n            box-shadow: 0 2px 5px rgba(0,0,0,0.05);\n        }\n        \n        .section h2 {\n            color: #00a4dc;\n            margin-top: 0;\n            border-bottom: 1px solid #eee;\n            padding-bottom: 10px;\n        }\n        \n        /* Collection and item list styles */\n        .item-list {\n            list-style: none;\n            padding: 0;\n            margin: 0;\n        }\n        \n        .item {\n            background-color: #f9f9f9;\n            border-radius: 4px;\n            padding: 15px;\n            margin-bottom: 10px;\n            border-left: 3px solid #ccc;\n        }\n        \n        .item.add {\n            border-left-color: #4caf50;\n        }\n        \n        .item.update {\n            border-left-color: #ff9800;\n        }\n        \n        .item.watch {\n            border-left-color: #9c27b0;\n        }\n        \n        .item-title {\n            font-weight: bold;\n            margin-bottom: 5px;\n        }\n        \n        .item-summary {\n            font-style: italic;\n            margin-bottom: 10px;\n            color: #666;\n        }\n        \n        .item-content {\n            margin-top: 10px;\n        }\n        \n        /* Statistics section */\n        .stats {\n            display: flex;\n            flex-wrap: wrap;\n            gap: 20px;\n            margin-bottom: 25px;\n        }\n        \n        .stat-box {\n            flex: 1;\n            min-width: 200px;\n            background-color: white;\n            padding: 15px;\n            border-radius: 5px;\n            box-shadow: 0 2px 5px rgba(0,0,0,0.05);\n            text-align: center;\n        }\n        \n        .stat-number {\n            font-size: 36px;\n            font-weight: bold;\n            color: #00a4dc;\n            margin: 10px 0;\n        }\n        \n        .stat-label {\n            color: #666;\n            font-size: 14px;\n        }\n        \n        /* No changes message */\n        .no-changes {\n            background-color: #f5f5f5;\n            padding: 30px;\n            text-align: center;\n            border-radius: 5px;\n            color: #666;\n            font-style: italic;\n        }\n        \n        /* Footer */\n        .footer {\n            text-align: center;\n            margin-top: 30px;\n            padding-top: 20px;\n            border-top: 1px solid #eee;\n            color: #999;\n            font-size: 12px;\n        }\n        \n        /* Responsive adjustments */\n        @media (max-width: 768px) {\n            .stats {\n                flex-direction: column;\n            }\n            \n            .stat-box {\n                min-width: unset;\n            }\n        }\n    </style>\n</head>';
+                
+                // Body section with header and summary
+                var body = '<body>\n    <div class="header">\n        <h1>Plexyfin Dry Run Report</h1>\n        <p>Generated on ' + timestamp + '</p>\n    </div>\n    \n    <div class="summary">\n        <p>The following changes would be made if a sync was performed.</p>\n    </div>';
+                
+                // Statistics section
+                var stats = '\n    <div class="stats">\n        <div class="stat-box">\n            <div class="stat-number">' + (addCount || 0) + '</div>\n            <div class="stat-label">Collections to Add</div>\n        </div>\n        <div class="stat-box">\n            <div class="stat-number">' + (updateCount || 0) + '</div>\n            <div class="stat-label">Collections to Update</div>\n        </div>\n        <div class="stat-box">\n            <div class="stat-number">' + (watchCount || 0) + '</div>\n            <div class="stat-label">Watch States to Change</div>\n        </div>\n        <div class="stat-box">\n            <div class="stat-number">' + (totalChanges || 0) + '</div>\n            <div class="stat-label">Total Changes</div>\n        </div>\n    </div>';
+                
+                // Build the body content
+                var content = "";
+                
+                // If there are no changes, show a message
+                if (totalChanges === 0) {
+                    content += '\n    <div class="no-changes">\n        <h2>No Changes Would Be Made</h2>\n        <p>Your Jellyfin collections and watch states are already in sync with Plex.</p>\n    </div>';
+                } else {
+                    // Add Collections to Add section
+                    if (details.collectionsToAdd?.length > 0) {
+                        content += '\n    <div class="section">\n        <h2>Collections That Would Be Added (' + details.collectionsToAdd.length + ')</h2>\n        <ul class="item-list">';
+                        
+                        for (var i = 0; i < details.collectionsToAdd.length; i++) {
+                            var collection = details.collectionsToAdd[i];
+                            var collectionTitle = collection.title || 'Unnamed Collection';
+                            
+                            content += '\n            <li class="item add">\n                <div class="item-title">' + collectionTitle + '</div>';
+                            
+                            if (collection.summary) {
+                                content += '\n                <div class="item-summary">' + collection.summary + '</div>';
+                            }
+                            
+                            content += '\n                <div class="item-content"><strong>Items:</strong> ';
+                            
+                            if (collection.items && collection.items.length > 0) {
+                                content += collection.items.join(', ');
+                            } else {
+                                content += 'None';
+                            }
+                            
+                            content += '</div>\n            </li>';
+                        }
+                        
+                        content += '\n        </ul>\n    </div>';
+                    }
+                    
+                    // Add Collections to Update section
+                    if (details.collectionsToUpdate?.length > 0) {
+                        content += '\n    <div class="section">\n        <h2>Collections That Would Be Updated (' + details.collectionsToUpdate.length + ')</h2>\n        <ul class="item-list">';
+                        
+                        for (var i = 0; i < details.collectionsToUpdate.length; i++) {
+                            var collection = details.collectionsToUpdate[i];
+                            var collectionTitle = collection.title || 'Unnamed Collection';
+                            
+                            content += '\n            <li class="item update">\n                <div class="item-title">' + collectionTitle + '</div>';
+                            
+                            if (collection.summary) {
+                                content += '\n                <div class="item-summary">' + collection.summary + '</div>';
+                            }
+                            
+                            content += '\n                <div class="item-content"><strong>Items:</strong> ';
+                            
+                            if (collection.items && collection.items.length > 0) {
+                                content += collection.items.join(', ');
+                            } else {
+                                content += 'None';
+                            }
+                            
+                            content += '</div>\n            </li>';
+                        }
+                        
+                        content += '\n        </ul>\n    </div>';
+                    }
+                    
+                    // Add Watch States to Change section
+                    if (details.watchStatesChanged?.length > 0) {
+                        content += '\n    <div class="section">\n        <h2>Watch States That Would Be Changed (' + details.watchStatesChanged.length + ')</h2>\n        <ul class="item-list">';
+                        
+                        for (var i = 0; i < details.watchStatesChanged.length; i++) {
+                            var change = details.watchStatesChanged[i];
+                            // Use nullish coalescing to default to placeholder text if properties are missing
+                            var itemTitle = change.title || 'Unnamed Item';
+                            var currentState = change.currentState || 'Unknown';
+                            var newState = change.newState || 'Unknown';
+                            
+                            content += '\n            <li class="item watch">\n                <div class="item-title">' + itemTitle + '</div>\n                <div class="item-content">\n                    <strong>Current:</strong> ' + currentState + '<br>\n                    <strong>Change:</strong> ' + newState + '\n                </div>\n            </li>';
+                        }
+                        
+                        content += '\n        </ul>\n    </div>';
+                    }
+                }
+                
+                // Add footer
+                var footer = '\n    <div class="footer">\n        <p>Generated by Plexyfin plugin for Jellyfin</p>\n        <p>Click "Sync Now" in the plugin settings to apply these changes</p>\n    </div>\n</body>\n</html>';
+                
+                // Combine all sections into a complete HTML document
+                var reportHtml = head + body + stats + content + footer;
+                
+                // Open a new window/tab with the report
+                var reportWindow = window.open('', '_blank');
+                reportWindow.document.write(reportHtml);
+                reportWindow.document.close();
+            }
         </script>
     </div>
 </body>
 </html>
-                    <div class="verticalSection">
-                        <h3 class="sectionTitle">Actions</h3>
-                        <div>
-                            <button is="emby-button" type="button" class="raised button-submit" id="btnSyncNow">
-                                <span>Sync from Plex</span>
-                            </button>
-                            <button is="emby-button" type="button" class="raised" id="btnDryRun">
-                                <span>Dry Run (Preview Changes)</span>
-                            </button>
-                        </div>
-                        <div class="fieldDescription" style="margin-top: 10px;">
-                            "Sync from Plex" will immediately sync collections and watch states based on your settings.<br>
-                            "Dry Run" will show what changes would be made without actually applying them.
-                        </div>
-                    </div>
-            function dryRunSync() {
-                Dashboard.showLoadingMsg();
-                
-                ApiClient.ajax({
-                    type: 'POST',
-                    url: ApiClient.getUrl('/Plexyfin/DryRunSync'),
-                    dataType: 'json'
-                }).then(function(result) {
-                    Dashboard.hideLoadingMsg();
-                    
-                    // Create a dialog to show the results
-                    var html = '<div>';
-                    html += '<h2>Dry Run Completed</h2>';
-                    html += '<p>A detailed report has been generated showing what changes would be made during a sync operation.</p>';
-                    html += '<p><a href="' + result.DownloadUrl + '" target="_blank" class="button-link">Download Report</a></p>';
-                    html += '</div>';
-                    
-                    Dashboard.alert({
-                        message: html,
-                        title: 'Dry Run Results',
-                        callback: function() {
-                            // Nothing to do on close
-                        }
-                    });
-                }, function(error) {
-                    Dashboard.hideLoadingMsg();
-                    showMessage('Error performing dry run: ' + error.status + ' ' + error.statusText, true);
-                });
-            }

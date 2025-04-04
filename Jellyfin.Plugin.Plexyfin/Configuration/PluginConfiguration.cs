@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.Plexyfin.Configuration
@@ -14,17 +16,15 @@ namespace Jellyfin.Plugin.Plexyfin.Configuration
         public PluginConfiguration()
         {
             // Set default values
-            PlexServerUrl = string.Empty;
             PlexApiToken = string.Empty;
             SyncCollections = true;
-            SyncPlaylists = false;
             DeleteBeforeSync = false; // Default to updating collections instead of deleting
             SyncArtwork = true; // Default to syncing artwork
             EnableScheduledSync = false;
             SyncIntervalHours = 24; // Default to daily sync
             SelectedLibraries = new List<string>(); // Initialize with empty list
             EnableDebugMode = false; // Default to no debug mode
-            MaxUrlPatternAttempts = 3; // Default to 3 URL pattern attempts
+            // MaxUrlPatternAttempts setting removed as it's no longer needed
             SyncWatchState = false; // Default to not syncing watch state
             SyncWatchStateDirection = "Bidirectional"; // Default to bidirectional sync
         }
@@ -32,7 +32,7 @@ namespace Jellyfin.Plugin.Plexyfin.Configuration
         /// <summary>
         /// Gets or sets the Plex Media Server URL.
         /// </summary>
-        public string PlexServerUrl { get; set; }
+        public string? PlexServerUrl { get; set; }
 
         /// <summary>
         /// Gets or sets the Plex API Token.
@@ -44,10 +44,6 @@ namespace Jellyfin.Plugin.Plexyfin.Configuration
         /// </summary>
         public bool SyncCollections { get; set; }
 
-        /// <summary>
-        /// Gets or sets a value indicating whether to sync playlists from Plex.
-        /// </summary>
-        public bool SyncPlaylists { get; set; }
         
         /// <summary>
         /// Gets or sets a value indicating whether to delete existing collections before syncing.
@@ -81,11 +77,7 @@ namespace Jellyfin.Plugin.Plexyfin.Configuration
         /// </summary>
         public bool EnableDebugMode { get; set; }
         
-        /// <summary>
-        /// Gets or sets the maximum number of URL patterns to try when fetching collection items.
-        /// Lower values improve performance but may reduce compatibility with some Plex servers.
-        /// </summary>
-        public int MaxUrlPatternAttempts { get; set; }
+        // MaxUrlPatternAttempts setting removed as it's no longer needed
         
         /// <summary>
         /// Gets or sets a value indicating whether to sync watch state between Plex and Jellyfin.

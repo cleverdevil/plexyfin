@@ -21,7 +21,7 @@ namespace Jellyfin.Plugin.Plexyfin
         }
 
         /// <inheritdoc />
-        public IDisposable BeginScope<TState>(TState state)
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull
         {
             return _innerLogger.BeginScope(state);
         }
@@ -33,7 +33,7 @@ namespace Jellyfin.Plugin.Plexyfin
         }
 
         /// <inheritdoc />
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception, Func<TState, Exception, string> formatter)
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             _innerLogger.Log(logLevel, eventId, state, exception, formatter);
         }

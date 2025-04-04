@@ -1,3 +1,6 @@
+using System;
+using System.Text.Json.Serialization;
+
 namespace Jellyfin.Plugin.Plexyfin.Plex
 {
     /// <summary>
@@ -8,26 +11,31 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
         /// <summary>
         /// Gets or sets the collection ID.
         /// </summary>
+        [JsonPropertyName("id")]
         public string Id { get; set; } = string.Empty;
         
         /// <summary>
         /// Gets or sets the collection title.
         /// </summary>
+        [JsonPropertyName("title")]
         public string Title { get; set; } = string.Empty;
         
         /// <summary>
         /// Gets or sets the collection summary.
         /// </summary>
+        [JsonPropertyName("summary")]
         public string Summary { get; set; } = string.Empty;
         
         /// <summary>
         /// Gets or sets the thumbnail URL.
         /// </summary>
-        public string ThumbUrl { get; set; } = string.Empty;
+        [JsonPropertyName("thumbUrl")]
+        public Uri? ThumbUrl { get; set; }
         
         /// <summary>
         /// Gets or sets the art URL.
         /// </summary>
-        public string ArtUrl { get; set; } = string.Empty;
+        [JsonPropertyName("artUrl")]
+        public Uri? ArtUrl { get; set; }
     }
 }
