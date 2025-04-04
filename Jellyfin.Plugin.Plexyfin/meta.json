@@ -1,12 +1,12 @@
 {
   "name": "Plexyfin",
   "guid": "b9f0c474-e9a8-4292-ae41-eb3c1542f4cd",
-  "version": "0.2.0.0",
+  "version": "0.3.0.0",
   "overview": "Plugin for Jellyfin that syncs collections and artwork from Plex to Jellyfin",
   "description": "Syncs collections, artwork, and their metadata from your Plex Media Server to Jellyfin.",
   "owner": "plexyfin",
   "category": "General",
-  "targetAbi": "10.8.0.0",
-  "changelog": "- Added support for direct filesystem access for artwork\n  - Fixed artwork sync for Jellyfin collections\n  - Added environment variable support for custom data paths\n  - Improved error handling and logging",
+  "targetAbi": "10.9.9.0",
+  "changelog": "- Improved collection sync with better progress tracking\n  - Enhanced watch state sync with detailed item-by-item progress\n  - Added dry run capability for testing synchronization\n  - Removed playlist sync feature\n  - Improved UI progress display with more informative updates",
   "imageUrl": "https://raw.githubusercontent.com/plexyfin/plexyfin/main/plexyfin.png"
 }
