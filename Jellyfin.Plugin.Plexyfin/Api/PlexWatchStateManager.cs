@@ -211,8 +211,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                     IsFavorite = jellyfinUserData.IsFavorite
                                 };
 
-                                _userDataManager.SaveUserData(user.Id, item, updatedUserData,
-                                    UserDataSaveReason.TogglePlayed, CancellationToken.None);
+                                _userDataManager.SaveUserData(user, item, updatedUserData, UserDataSaveReason.TogglePlayed, CancellationToken.None);
                             }
 
                             if (!plexWatchState.Watched)
@@ -251,8 +250,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                         IsFavorite = jellyfinUserData.IsFavorite
                                     };
 
-                                    _userDataManager.SaveUserData(user.Id, item, updatedUserData,
-                                        UserDataSaveReason.TogglePlayed, CancellationToken.None);
+                                    _userDataManager.SaveUserData(user, item, updatedUserData, UserDataSaveReason.TogglePlayed, CancellationToken.None);
                                 }
 
                                 if (Math.Abs(plexWatchState.PlaybackPosition - maxPosition) > 10)
@@ -291,8 +289,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                 IsFavorite = jellyfinUserData.IsFavorite
                             };
 
-                            _userDataManager.SaveUserData(user.Id, item, updatedUserData,
-                                UserDataSaveReason.TogglePlayed, CancellationToken.None);
+                            _userDataManager.SaveUserData(user, item, updatedUserData, UserDataSaveReason.TogglePlayed, CancellationToken.None);
                         }
                         else if (!plexWatchState.Watched && !jellyfinWatched &&
                                  plexWatchState.PlaybackPosition > 0 &&
@@ -315,8 +312,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                 IsFavorite = jellyfinUserData.IsFavorite
                             };
 
-                            _userDataManager.SaveUserData(user.Id, item, updatedUserData,
-                                UserDataSaveReason.TogglePlayed, CancellationToken.None);
+                            _userDataManager.SaveUserData(user, item, updatedUserData, UserDataSaveReason.TogglePlayed, CancellationToken.None);
                         }
                     }
                     else if (direction == "JellyfinToPlex")

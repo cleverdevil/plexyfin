@@ -127,14 +127,34 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                     string? thumbPath = directory.Attribute("thumb")?.Value;
                     if (!string.IsNullOrEmpty(thumbPath))
                     {
-                        collection.ThumbUrl = new Uri(_baseUrl, thumbPath);
+                        // Append Plex token to the URL to allow authenticated access
+                        string thumbWithToken = thumbPath;
+                        if (thumbWithToken.Contains('?'))
+                        {
+                            thumbWithToken += $"&X-Plex-Token={_token}";
+                        }
+                        else
+                        {
+                            thumbWithToken += $"?X-Plex-Token={_token}";
+                        }
+                        collection.ThumbUrl = new Uri(_baseUrl, thumbWithToken);
                     }
                     
                     // Set art URL if available
                     string? artPath = directory.Attribute("art")?.Value;
                     if (!string.IsNullOrEmpty(artPath))
                     {
-                        collection.ArtUrl = new Uri(_baseUrl, artPath);
+                        // Append Plex token to the URL to allow authenticated access
+                        string artWithToken = artPath;
+                        if (artWithToken.Contains('?'))
+                        {
+                            artWithToken += $"&X-Plex-Token={_token}";
+                        }
+                        else
+                        {
+                            artWithToken += $"?X-Plex-Token={_token}";
+                        }
+                        collection.ArtUrl = new Uri(_baseUrl, artWithToken);
                     }
                     
                     collections.Add(collection);

@@ -131,21 +131,21 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 {
                     if (syncStatus != null)
                     {
-                        syncStatus.Message = "Emptying existing collections...";
+                        syncStatus.Message = "Removing existing collections...";
                         syncStatus.Progress = 15;
                     }
                     
-                    var emptiedCount = await DeleteExistingCollectionsAsync().ConfigureAwait(false);
-                    _logger.LogInformation("Emptied {Count} existing collections for recreation", emptiedCount);
+                    var deletedCount = await DeleteExistingCollectionsAsync().ConfigureAwait(false);
+                    _logger.LogInformation("Removed {Count} existing collections (emptied and made invisible)", deletedCount);
                 }
                 else if (config.DeleteBeforeSync && dryRun)
                 {
-                    // In dry run mode, just count existing collections that would be emptied
+                    // In dry run mode, just count existing collections that would be deleted
                     var collections = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
                     {
                         IncludeItemTypes = new[] { BaseItemKind.BoxSet }
                     });
-                    _logger.LogInformation("Would empty {Count} existing collections for recreation", collections.Count());
+                    _logger.LogInformation("Would remove {Count} existing collections (empty and make invisible)", collections.Count());
                 }
                 
                 if (syncStatus != null)
@@ -327,7 +327,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         }
 
         /// <summary>
-        /// Empties all existing collections in Jellyfin.
+        /// Empties all existing collections in Jellyfin by removing all items, making them invisible in UI.
         /// </summary>
         /// <returns>The number of collections emptied.</returns>
         private async Task<int> DeleteExistingCollectionsAsync()
@@ -336,24 +336,64 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             var collections = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
             {
                 IncludeItemTypes = new[] { BaseItemKind.BoxSet }
-            });
+            }).ToList();
             
             int count = 0;
             
-            // We'll just empty all collections to prepare for recreation
+            // We can't permanently delete collections, so we'll have to empty them
+            // and make them invisible to the user, which effectively makes them "gone"
             foreach (var collection in collections)
             {
                 try
                 {
-                    // Empty the collection by removing all items from it
+                    // Step 1: First empty the collection by removing all items from it
                     await _collectionManager.RemoveFromCollectionAsync(collection.Id, Array.Empty<Guid>()).ConfigureAwait(false);
+                    
+                    // Step 2: Make the collection invisible to users by:
+                    // - Setting a special name starting with "."
+                    // - Setting IsVisible to false if the property exists
+                    // - Setting other properties that may hide it in the UI
+                    collection.Name = $".deleted_{collection.Id}_{DateTime.Now.Ticks}";
+                    
+                    try
+                    {
+                        // Try to use reflection to set IsVisible property if it exists
+                        var isVisibleProperty = collection.GetType().GetProperty("IsVisible");
+                        if (isVisibleProperty != null)
+                        {
+                            isVisibleProperty.SetValue(collection, false);
+                        }
+                        
+                        // Try to set other properties that might hide the collection
+                        var lockProperty = collection.GetType().GetProperty("IsLocked");
+                        if (lockProperty != null)
+                        {
+                            lockProperty.SetValue(collection, true);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Error setting visibility properties on collection {Id}", collection.Id);
+                    }
+                    
+                    // Update the collection in the database
+                    await _libraryManager.UpdateItemAsync(
+                        collection,
+                        collection.GetParent(),
+                        ItemUpdateType.MetadataEdit,
+                        CancellationToken.None).ConfigureAwait(false);
+                    
+                    _logger.LogDebug("Made collection invisible: {Id}", collection.Id);
                     count++;
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error emptying collection: {Name}", collection.Name);
+                    _logger.LogError(ex, "Error processing collection: {Name}", collection.Name);
                 }
             }
+            
+            // Just give the system a moment to process changes
+            await Task.Delay(500).ConfigureAwait(false);
             
             return count;
         }
@@ -490,6 +530,25 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                 {
                                     try
                                     {
+                                        // Before creating a new collection, make sure no collection with this name already exists
+                                        var existingCollectionCheck = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
+                                        {
+                                            IncludeItemTypes = new[] { BaseItemKind.BoxSet },
+                                            Name = collection.Title
+                                        }).FirstOrDefault();
+                                        
+                                        if (existingCollectionCheck != null)
+                                        {
+                                            // If one still exists with this name, we need to make it invisible to avoid conflicts
+                                            _logger.LogWarning("Found existing collection with name {Title}, making it invisible first", collection.Title);
+                                            existingCollectionCheck.Name = $".conflict_{existingCollectionCheck.Id}_{DateTime.Now.Ticks}";
+                                            await _libraryManager.UpdateItemAsync(
+                                                existingCollectionCheck,
+                                                existingCollectionCheck.GetParent(),
+                                                ItemUpdateType.MetadataEdit,
+                                                CancellationToken.None).ConfigureAwait(false);
+                                        }
+                                        
                                         // Create collection using the built-in collection manager
                                         var options = new MediaBrowser.Controller.Collections.CollectionCreationOptions
                                         {
@@ -527,7 +586,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                             // Process artwork
                                             if (config.SyncArtwork)
                                             {
-                                                ProcessCollectionArtwork(newCollection, collection);
+                                                await ProcessCollectionArtwork(newCollection, collection).ConfigureAwait(false);
                                             }
                                             
                                             added++;
@@ -585,7 +644,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                         // Process artwork
                                         if (config.SyncArtwork)
                                         {
-                                            ProcessCollectionArtwork(existingCollection, collection);
+                                            await ProcessCollectionArtwork(existingCollection, collection).ConfigureAwait(false);
                                         }
                                         
                                         updated++;
@@ -631,7 +690,8 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         /// </summary>
         /// <param name="jellyfinCollection">The Jellyfin collection.</param>
         /// <param name="plexCollection">The Plex collection.</param>
-        private void ProcessCollectionArtwork(BaseItem jellyfinCollection, PlexCollection plexCollection)
+        /// <returns>A task representing the asynchronous operation.</returns>
+        private async Task ProcessCollectionArtwork(BaseItem jellyfinCollection, PlexCollection plexCollection)
         {
             if (jellyfinCollection == null)
             {
@@ -641,18 +701,242 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             
             _logger.LogDebug("Processing artwork for collection: {CollectionName}", jellyfinCollection.Name);
             
-            // For now, just log that we would sync the artwork
-            if (plexCollection.ThumbUrl != null)
+            using var httpClient = _httpClientFactory.CreateClient();
+            httpClient.DefaultRequestHeaders.Add("User-Agent", "Jellyfin-Plexyfin-Plugin");
+            bool hasChanges = false;
+            
+            try 
             {
-                _logger.LogDebug("Would sync thumbnail: {ThumbUrl}", plexCollection.ThumbUrl);
+                // Process primary image (poster/thumbnail)
+                if (plexCollection.ThumbUrl != null)
+                {
+                    _logger.LogDebug("Downloading thumbnail: {ThumbUrl}", plexCollection.ThumbUrl);
+                    
+                    var response = await httpClient.GetAsync(plexCollection.ThumbUrl).ConfigureAwait(false);
+                    response.EnsureSuccessStatusCode();
+                    
+                    // Get content type from the response if available
+                    string mimeType = "image/png"; // Default to image/png
+                    if (response.Content.Headers.ContentType != null)
+                    {
+                        mimeType = response.Content.Headers.ContentType.MediaType;
+                        _logger.LogDebug("Using MIME type from response: {MimeType}", mimeType);
+                    }
+                    else
+                    {
+                        // Try to determine MIME type from URL
+                        mimeType = GetMimeTypeFromUrl(plexCollection.ThumbUrl.ToString());
+                        _logger.LogDebug("Using MIME type from URL: {MimeType}", mimeType);
+                    }
+                    
+                    // Use a memory stream to fully buffer the content before passing it to Jellyfin's image saver
+                    // This helps avoid file locking issues by ensuring we're not trying to read and write at the same time
+                    byte[] imageData;
+                    using (var imageStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                    {
+                        using var memStream = new MemoryStream();
+                        await imageStream.CopyToAsync(memStream).ConfigureAwait(false);
+                        imageData = memStream.ToArray();
+                    }
+                    
+                    // Add a small delay to allow any file handles to be completely closed
+                    await Task.Delay(100).ConfigureAwait(false);
+                    
+                    // Set the image directly on the BaseItem
+                    if (_providerManager != null)
+                    {
+                        await _libraryManager.UpdateItemAsync(
+                            jellyfinCollection,
+                            jellyfinCollection.GetParent(),
+                            ItemUpdateType.ImageUpdate,
+                            CancellationToken.None).ConfigureAwait(false);
+                            
+                        // Use memory stream and ImageType enum
+                        // Create a new memory stream for each save operation to avoid sharing stream positions
+                        using var saveStream = new MemoryStream(imageData);
+                        try
+                        {
+                            await _providerManager.SaveImage(
+                                jellyfinCollection,
+                                saveStream,
+                                mimeType, // Use the detected MIME type
+                                ImageType.Primary,
+                                null,
+                                CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch (IOException ex)
+                        {
+                            _logger.LogWarning(ex, "I/O error saving primary image for collection {CollectionName}, will retry after delay", jellyfinCollection.Name);
+                            // Add a longer delay and try once more
+                            await Task.Delay(500).ConfigureAwait(false);
+                            
+                            using var retryStream = new MemoryStream(imageData);
+                            await _providerManager.SaveImage(
+                                jellyfinCollection,
+                                retryStream,
+                                mimeType,
+                                ImageType.Primary,
+                                null,
+                                CancellationToken.None).ConfigureAwait(false);
+                        }
+                            
+                        hasChanges = true;
+                        _logger.LogDebug("Successfully saved thumbnail for collection: {CollectionName}", jellyfinCollection.Name);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Provider manager is null, cannot save thumbnail for collection: {CollectionName}", jellyfinCollection.Name);
+                    }
+                }
+                
+                // Process background image (art)
+                if (plexCollection.ArtUrl != null)
+                {
+                    _logger.LogDebug("Downloading art: {ArtUrl}", plexCollection.ArtUrl);
+                    
+                    var response = await httpClient.GetAsync(plexCollection.ArtUrl).ConfigureAwait(false);
+                    response.EnsureSuccessStatusCode();
+                    
+                    // Get content type from the response if available
+                    string mimeType = "image/png"; // Default to image/png
+                    if (response.Content.Headers.ContentType != null)
+                    {
+                        mimeType = response.Content.Headers.ContentType.MediaType;
+                        _logger.LogDebug("Using MIME type from response: {MimeType}", mimeType);
+                    }
+                    else
+                    {
+                        // Try to determine MIME type from URL
+                        mimeType = GetMimeTypeFromUrl(plexCollection.ArtUrl.ToString());
+                        _logger.LogDebug("Using MIME type from URL: {MimeType}", mimeType);
+                    }
+                    
+                    // Use a memory stream to fully buffer the content before passing it to Jellyfin's image saver
+                    // This helps avoid file locking issues by ensuring we're not trying to read and write at the same time
+                    byte[] imageData;
+                    using (var imageStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                    {
+                        using var memStream = new MemoryStream();
+                        await imageStream.CopyToAsync(memStream).ConfigureAwait(false);
+                        imageData = memStream.ToArray();
+                    }
+                    
+                    // Add a small delay to allow any file handles to be completely closed
+                    await Task.Delay(100).ConfigureAwait(false);
+                    
+                    // Set the image directly on the BaseItem
+                    if (_providerManager != null)
+                    {
+                        await _libraryManager.UpdateItemAsync(
+                            jellyfinCollection,
+                            jellyfinCollection.GetParent(),
+                            ItemUpdateType.ImageUpdate,
+                            CancellationToken.None).ConfigureAwait(false);
+                            
+                        // Use memory stream and ImageType enum
+                        // Create a new memory stream for each save operation to avoid sharing stream positions
+                        using var saveStream = new MemoryStream(imageData);
+                        try
+                        {
+                            await _providerManager.SaveImage(
+                                jellyfinCollection,
+                                saveStream,
+                                mimeType, // Use the detected MIME type
+                                ImageType.Backdrop,
+                                null,
+                                CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch (IOException ex)
+                        {
+                            _logger.LogWarning(ex, "I/O error saving backdrop image for collection {CollectionName}, will retry after delay", jellyfinCollection.Name);
+                            // Add a longer delay and try once more
+                            await Task.Delay(500).ConfigureAwait(false);
+                            
+                            using var retryStream = new MemoryStream(imageData);
+                            await _providerManager.SaveImage(
+                                jellyfinCollection,
+                                retryStream,
+                                mimeType,
+                                ImageType.Backdrop,
+                                null,
+                                CancellationToken.None).ConfigureAwait(false);
+                        }
+                            
+                        hasChanges = true;
+                        _logger.LogDebug("Successfully saved art for collection: {CollectionName}", jellyfinCollection.Name);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Provider manager is null, cannot save backdrop for collection: {CollectionName}", jellyfinCollection.Name);
+                    }
+                }
+                
+                // Refresh artwork after changes
+                if (hasChanges)
+                {
+                    await _libraryManager.UpdateItemAsync(
+                        jellyfinCollection,
+                        jellyfinCollection.GetParent(),
+                        ItemUpdateType.ImageUpdate,
+                        CancellationToken.None).ConfigureAwait(false);
+                        
+                    _logger.LogDebug("Updated repository with new images for collection: {CollectionName}", jellyfinCollection.Name);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing artwork for collection {CollectionName}", jellyfinCollection.Name);
+            }
+        }
+        
+        /// <summary>
+        /// Gets the MIME type based on a file URL's extension.
+        /// </summary>
+        /// <param name="url">The URL to analyze.</param>
+        /// <returns>The MIME type string.</returns>
+        private string GetMimeTypeFromUrl(string url)
+        {
+            // Default to image/png if we can't determine the type
+            string mimeType = "image/png";
+            
+            try
+            {
+                string extension = Path.GetExtension(url.Split('?')[0]).ToLowerInvariant();
+                
+                switch (extension)
+                {
+                    case ".jpg":
+                    case ".jpeg":
+                        mimeType = "image/jpeg";
+                        break;
+                    case ".png":
+                        mimeType = "image/png";
+                        break;
+                    case ".gif":
+                        mimeType = "image/gif";
+                        break;
+                    case ".webp":
+                        mimeType = "image/webp";
+                        break;
+                    case ".bmp":
+                        mimeType = "image/bmp";
+                        break;
+                    case ".tiff":
+                    case ".tif":
+                        mimeType = "image/tiff";
+                        break;
+                    default:
+                        // If we can't determine the type from the extension, default to image/png
+                        mimeType = "image/png";
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error determining MIME type from URL: {Url}", url);
             }
             
-            if (plexCollection.ArtUrl != null)
-            {
-                _logger.LogDebug("Would sync art: {ArtUrl}", plexCollection.ArtUrl);
-            }
-            
-            // In a real implementation, we would download and save the artwork
+            return mimeType;
         }
         
 
