@@ -25,8 +25,6 @@ namespace Jellyfin.Plugin.Plexyfin.Configuration
             SelectedLibraries = new List<string>(); // Initialize with empty list
             EnableDebugMode = false; // Default to no debug mode
             // MaxUrlPatternAttempts setting removed as it's no longer needed
-            SyncWatchState = false; // Default to not syncing watch state
-            SyncWatchStateDirection = "Bidirectional"; // Default to bidirectional sync
         }
 
         /// <summary>
@@ -79,15 +77,5 @@ namespace Jellyfin.Plugin.Plexyfin.Configuration
         
         // MaxUrlPatternAttempts setting removed as it's no longer needed
         
-        /// <summary>
-        /// Gets or sets a value indicating whether to sync watch state between Plex and Jellyfin.
-        /// </summary>
-        public bool SyncWatchState { get; set; }
-        
-        /// <summary>
-        /// Gets or sets the direction for watch state synchronization.
-        /// Valid values: "PlexToJellyfin", "JellyfinToPlex", "Bidirectional"
-        /// </summary>
-        public string SyncWatchStateDirection { get; set; }
     }
 }

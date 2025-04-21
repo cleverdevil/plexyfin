@@ -39,7 +39,6 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         {
             CollectionsToAdd = new List<SyncCollectionDetail>();
             CollectionsToUpdate = new List<SyncCollectionDetail>();
-            WatchStatesChanged = new List<SyncWatchStateDetail>();
         }
         
         /// <summary>
@@ -54,11 +53,6 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         [JsonPropertyName("collectionsToUpdate")]
         public List<SyncCollectionDetail> CollectionsToUpdate { get; set; }
         
-        /// <summary>
-        /// Gets or sets the list of watch states that would be changed.
-        /// </summary>
-        [JsonPropertyName("watchStatesChanged")]
-        public List<SyncWatchStateDetail> WatchStatesChanged { get; set; }
     }
     
     /// <summary>
@@ -85,27 +79,4 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         public List<string> Items { get; set; } = new List<string>();
     }
     
-    /// <summary>
-    /// Detailed information about a watch state sync operation.
-    /// </summary>
-    public class SyncWatchStateDetail
-    {
-        /// <summary>
-        /// Gets or sets the item title.
-        /// </summary>
-        [JsonPropertyName("title")]
-        public string Title { get; set; } = string.Empty;
-        
-        /// <summary>
-        /// Gets or sets the current watch state.
-        /// </summary>
-        [JsonPropertyName("currentState")]
-        public string CurrentState { get; set; } = string.Empty;
-        
-        /// <summary>
-        /// Gets or sets the new watch state.
-        /// </summary>
-        [JsonPropertyName("newState")]
-        public string NewState { get; set; } = string.Empty;
-    }
 }
