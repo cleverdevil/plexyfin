@@ -3,13 +3,13 @@
   "name": "Plexyfin",
   "description": "Syncs collections, artwork, and their metadata from your Plex Media Server to Jellyfin",
   "overview": "Plugin for Jellyfin that syncs collections and artwork from Plex to Jellyfin",
-  "version": "0.3.0.0",
+  "version": "0.4.0.0",
   "owner": "plexyfin",
   "category": "General",
   "targetAbi": "10.9.9.0",
   "framework": "net8.0",
   "status": "Active",
   "autoUpdate": true,
-  "timestamp": "2025-04-04T23:21:28.0000000Z",
-  "changelog": "Improved collection sync, functional watch state sync, dry run capabilities, enhanced progress tracking"
+  "timestamp": "2025-04-21T07:37:50.0000000Z",
+  "changelog": "Removed watch state synchronization, improved collection sync, dry run capabilities, enhanced progress tracking"
 }

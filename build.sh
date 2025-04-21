@@ -2,7 +2,7 @@
 set -e
 
 # Configuration
-VERSION="0.3.0.0"
+VERSION="0.4.0.0"
 PLUGIN_ID="Plexyfin"
 PLUGIN_NAME="Jellyfin.Plugin.Plexyfin"
 OUTPUT_DIR="dist"
@@ -43,7 +43,7 @@ cat > "$OUTPUT_DIR/${PLUGIN_ID}_${VERSION}/meta.json" << EOF
   "status": "Active",
   "autoUpdate": true,
   "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%S.0000000Z")",
-  "changelog": "Improved collection sync, functional watch state sync, dry run capabilities, enhanced progress tracking"
+  "changelog": "Removed watch state synchronization, improved collection sync, dry run capabilities, enhanced progress tracking"
 }
 EOF
 

@@ -12,6 +12,14 @@
       "category": "Metadata",
       "versions": [
         {
+          "version": "0.4.0.0",
+          "changelog": "Removed watch state synchronization, improved collection sync, dry run capabilities.",
+          "targetAbi": "10.9.9.0",
+          "sourceUrl": "https://cleverdevil.github.io/plexyfin/versions/plexyfin/0.4.0.0.json",
+          "checksum": "f720f2f0fdf27cedad70ff5d0baaaea9df7cdc344c668ec703e2019e218fd73d02ea1320dc3296fa2bdc172f3af7663eae72503d12484bb7025ec5888436fec7",
+          "timestamp": "2025-04-21T07:38:16Z"
+        },
+        {
           "version": "0.3.0.0",
           "changelog": "Improved collection sync, functional watch state sync, dry run capabilities.",
           "targetAbi": "10.9.9.0",

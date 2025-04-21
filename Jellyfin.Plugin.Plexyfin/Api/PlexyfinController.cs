@@ -1142,14 +1142,12 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         if (result.Details != null)
                         {
                             int totalChanges = result.Details.CollectionsToAdd.Count + 
-                                             result.Details.CollectionsToUpdate.Count + 
-                                             result.Details.WatchStatesChanged.Count;
+                                             result.Details.CollectionsToUpdate.Count;
                                              
-                            _logger.LogInformation("Dry run completed with {TotalChanges} total changes: {AddCount} collections to add, {UpdateCount} to update, {WatchCount} watch states to change",
+                            _logger.LogInformation("Dry run completed with {TotalChanges} total changes: {AddCount} collections to add, {UpdateCount} to update",
                                 totalChanges,
                                 result.Details.CollectionsToAdd.Count,
-                                result.Details.CollectionsToUpdate.Count,
-                                result.Details.WatchStatesChanged.Count);
+                                result.Details.CollectionsToUpdate.Count);
                         }
                     }
                     catch (Exception ex)
