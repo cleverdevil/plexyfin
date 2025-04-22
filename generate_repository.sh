@@ -4,7 +4,7 @@
 
 # Configuration
 PLUGIN_NAME="Plexyfin"
-PLUGIN_GUID="eb5d7894-8eef-4b36-aa6f-5d124e828ce1"
+PLUGIN_GUID="b9f0c474-e9a8-4292-ae41-eb3c1542f4cd"
 PLUGIN_OWNER="cleverdevil"
 PLUGIN_CATEGORY="Metadata"
 REPO_URL="https://cleverdevil.github.io/plexyfin"
@@ -14,7 +14,7 @@ TARGET_ABI="10.9.9.0"
 # Paths
 REPO_DIR="repository"
 VERSIONS_DIR="$REPO_DIR/versions/plexyfin"
-PLUGIN_DLL="dist/Plexyfin_0.4.0.0/Jellyfin.Plugin.Plexyfin.dll"
+PLUGIN_DLL="dist/Plexyfin_0.5.0.0/Jellyfin.Plugin.Plexyfin.dll"
 
 # Check if plugin DLL exists
 if [ ! -f "$PLUGIN_DLL" ]; then
@@ -24,7 +24,7 @@ if [ ! -f "$PLUGIN_DLL" ]; then
 fi
 
 # Set the version
-VERSION="0.4.0.0"
+VERSION="0.5.0.0"
 
 # Generate SHA512 checksum
 CHECKSUM=$(shasum -a 512 "$PLUGIN_DLL" | awk '{ print $1 }')

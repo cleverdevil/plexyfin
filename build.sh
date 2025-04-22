@@ -2,7 +2,7 @@
 set -e
 
 # Configuration
-VERSION="0.4.0.0"
+VERSION="0.5.0.0"
 PLUGIN_ID="Plexyfin"
 PLUGIN_NAME="Jellyfin.Plugin.Plexyfin"
 OUTPUT_DIR="dist"
