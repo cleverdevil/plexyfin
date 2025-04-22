@@ -20,6 +20,7 @@ namespace Jellyfin.Plugin.Plexyfin.Configuration
             SyncCollections = true;
             DeleteBeforeSync = false; // Default to updating collections instead of deleting
             SyncArtwork = true; // Default to syncing artwork
+            SyncItemArtwork = false; // Default to not syncing item artwork (opt-in feature)
             EnableScheduledSync = false;
             SyncIntervalHours = 24; // Default to daily sync
             SelectedLibraries = new List<string>(); // Initialize with empty list
@@ -52,6 +53,11 @@ namespace Jellyfin.Plugin.Plexyfin.Configuration
         /// Gets or sets a value indicating whether to sync collection artwork.
         /// </summary>
         public bool SyncArtwork { get; set; }
+        
+        /// <summary>
+        /// Gets or sets a value indicating whether to sync movie and TV show artwork.
+        /// </summary>
+        public bool SyncItemArtwork { get; set; }
         
         /// <summary>
         /// Gets or sets a value indicating whether to automatically sync on a schedule.

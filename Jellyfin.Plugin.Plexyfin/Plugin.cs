@@ -81,10 +81,7 @@ namespace Jellyfin.Plugin.Plexyfin
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
             // Validate progress parameter
-            if (progress == null)
-            {
-                throw new ArgumentNullException(nameof(progress));
-            }
+            ArgumentNullException.ThrowIfNull(progress);
             
             // Check if sync is enabled in config
             var config = Plugin.Instance.Configuration;
@@ -164,7 +161,7 @@ namespace Jellyfin.Plugin.Plexyfin
     }
 
     /// <summary>
-    /// The main plugin class for Plexyfin.
+    /// The main plugin class for the Plexyfin Jellyfin plugin.
     /// </summary>
     public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {

@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace Jellyfin.Plugin.Plexyfin.Plex
 {
     /// <summary>
-    /// Represents a Plex collection.
+    /// Represents a Plex collection item.
     /// </summary>
     public class PlexCollection
     {

@@ -110,7 +110,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             // Create a PlexClient instance
             var plexServerUri = string.IsNullOrEmpty(config.PlexServerUrl) 
                 ? new Uri("http://localhost") 
-                : new Uri(config.PlexServerUrl);
+                : new Uri(config.PlexServerUrl ?? "http://localhost");
             var plexClient = new PlexClient(_httpClientFactory, _logger, plexServerUri, config.PlexApiToken, config);
             
             // Sync library item artwork if enabled (this happens first to ensure all items have artwork before collections)
@@ -240,7 +240,9 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         result.ItemArtworkUpdated);
                 } else {
                     _logger.LogCollectionStatus(
-                        dryRun ? "simulation completed" : "completed");
+                        dryRun ? "simulation completed" : "completed", 
+                        result.CollectionsAdded, 
+                        result.CollectionsUpdated);
                 }
                     
                 if (syncStatus != null)

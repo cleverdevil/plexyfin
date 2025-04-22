@@ -18,6 +18,10 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         /// </summary>
         public int CollectionsUpdated { get; set; }
         
+        /// <summary>
+        /// Gets or sets the number of items with artwork updated.
+        /// </summary>
+        public int ItemArtworkUpdated { get; set; }
         
         /// <summary>
         /// Gets or sets detailed information about the sync operation.
