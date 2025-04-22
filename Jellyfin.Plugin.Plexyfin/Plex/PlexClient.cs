@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Xml.Linq;
 using System.Linq;
 using System.Globalization;
+using System.IO;
 using Jellyfin.Plugin.Plexyfin.Configuration;
 
 namespace Jellyfin.Plugin.Plexyfin.Plex
@@ -86,9 +87,21 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                     libraries.Add(library);
                 }
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
             {
-                _logger.LogError(ex, "Error getting libraries from Plex");
+                _logger.LogErrorGettingLibraries(ex);
+            }
+            catch (UriFormatException ex)
+            {
+                _logger.LogErrorGettingLibraries(ex);
+            }
+            catch (System.Xml.XmlException ex)
+            {
+                _logger.LogErrorGettingLibraries(ex);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogErrorGettingLibraries(ex);
             }
             
             return libraries;
@@ -129,7 +142,7 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                     {
                         // Append Plex token to the URL to allow authenticated access
                         string thumbWithToken = thumbPath;
-                        if (thumbWithToken.Contains('?'))
+                        if (thumbWithToken.Contains('?', StringComparison.Ordinal))
                         {
                             thumbWithToken += $"&X-Plex-Token={_token}";
                         }
@@ -146,7 +159,7 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                     {
                         // Append Plex token to the URL to allow authenticated access
                         string artWithToken = artPath;
-                        if (artWithToken.Contains('?'))
+                        if (artWithToken.Contains('?', StringComparison.Ordinal))
                         {
                             artWithToken += $"&X-Plex-Token={_token}";
                         }
@@ -160,14 +173,166 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                     collections.Add(collection);
                 }
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
             {
-                _logger.LogError(ex, "Error getting collections from Plex library {LibraryId}", libraryId);
+                _logger.LogErrorGettingCollections(libraryId, ex);
+            }
+            catch (UriFormatException ex)
+            {
+                _logger.LogErrorGettingCollections(libraryId, ex);
+            }
+            catch (System.Xml.XmlException ex)
+            {
+                _logger.LogErrorGettingCollections(libraryId, ex);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogErrorGettingCollections(libraryId, ex);
             }
             
             return collections;
         }
 
+        /// <summary>
+        /// Gets all items in a Plex library.
+        /// </summary>
+        /// <param name="libraryId">The library ID.</param>
+        /// <returns>A list of Plex items.</returns>
+        public async Task<List<PlexItem>> GetLibraryItems(string libraryId)
+        {
+            var items = new List<PlexItem>();
+            
+            try
+            {
+                using var client = _httpClientFactory.CreateClient();
+                var url = new Uri(_baseUrl, $"library/sections/{libraryId}/all?X-Plex-Token={_token}");
+                
+                // URL logging is handled at debug level internally
+                
+                var response = await client.GetAsync(url).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+                
+                var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                var doc = XDocument.Parse(content);
+                
+                // Look for Video elements (movies) or Directory elements (TV shows)
+                var videoElements = doc.Descendants("Video").ToList();
+                var directoryElements = doc.Descendants("Directory").ToList();
+                
+                foreach (var element in videoElements)
+                {
+                    var item = new PlexItem
+                    {
+                        Id = element.Attribute("ratingKey")?.Value ?? string.Empty,
+                        Title = element.Attribute("title")?.Value ?? string.Empty,
+                        Type = element.Attribute("type")?.Value ?? "movie"
+                    };
+                    
+                    // Set thumbnail URL if available
+                    string? thumbPath = element.Attribute("thumb")?.Value;
+                    if (!string.IsNullOrEmpty(thumbPath))
+                    {
+                        // Append Plex token to the URL to allow authenticated access
+                        string thumbWithToken = thumbPath;
+                        if (thumbWithToken.Contains('?', StringComparison.Ordinal))
+                        {
+                            thumbWithToken += $"&X-Plex-Token={_token}";
+                        }
+                        else
+                        {
+                            thumbWithToken += $"?X-Plex-Token={_token}";
+                        }
+                        item.ThumbUrl = new Uri(_baseUrl, thumbWithToken);
+                    }
+                    
+                    // Set art URL if available
+                    string? artPath = element.Attribute("art")?.Value;
+                    if (!string.IsNullOrEmpty(artPath))
+                    {
+                        // Append Plex token to the URL to allow authenticated access
+                        string artWithToken = artPath;
+                        if (artWithToken.Contains('?', StringComparison.Ordinal))
+                        {
+                            artWithToken += $"&X-Plex-Token={_token}";
+                        }
+                        else
+                        {
+                            artWithToken += $"?X-Plex-Token={_token}";
+                        }
+                        item.ArtUrl = new Uri(_baseUrl, artWithToken);
+                    }
+                    
+                    items.Add(item);
+                }
+                
+                foreach (var element in directoryElements)
+                {
+                    var item = new PlexItem
+                    {
+                        Id = element.Attribute("ratingKey")?.Value ?? string.Empty,
+                        Title = element.Attribute("title")?.Value ?? string.Empty,
+                        Type = element.Attribute("type")?.Value ?? "show"
+                    };
+                    
+                    // Set thumbnail URL if available
+                    string? thumbPath = element.Attribute("thumb")?.Value;
+                    if (!string.IsNullOrEmpty(thumbPath))
+                    {
+                        // Append Plex token to the URL to allow authenticated access
+                        string thumbWithToken = thumbPath;
+                        if (thumbWithToken.Contains('?', StringComparison.Ordinal))
+                        {
+                            thumbWithToken += $"&X-Plex-Token={_token}";
+                        }
+                        else
+                        {
+                            thumbWithToken += $"?X-Plex-Token={_token}";
+                        }
+                        item.ThumbUrl = new Uri(_baseUrl, thumbWithToken);
+                    }
+                    
+                    // Set art URL if available
+                    string? artPath = element.Attribute("art")?.Value;
+                    if (!string.IsNullOrEmpty(artPath))
+                    {
+                        // Append Plex token to the URL to allow authenticated access
+                        string artWithToken = artPath;
+                        if (artWithToken.Contains('?', StringComparison.Ordinal))
+                        {
+                            artWithToken += $"&X-Plex-Token={_token}";
+                        }
+                        else
+                        {
+                            artWithToken += $"?X-Plex-Token={_token}";
+                        }
+                        item.ArtUrl = new Uri(_baseUrl, artWithToken);
+                    }
+                    
+                    items.Add(item);
+                }
+                
+                _logger.LogLibraryItems(libraryId, items.Count);
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogErrorGettingLibraryItems(libraryId, ex);
+            }
+            catch (UriFormatException ex)
+            {
+                _logger.LogErrorGettingLibraryItems(libraryId, ex);
+            }
+            catch (System.Xml.XmlException ex)
+            {
+                _logger.LogErrorGettingLibraryItems(libraryId, ex);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogErrorGettingLibraryItems(libraryId, ex);
+            }
+            
+            return items;
+        }
+        
         /// <summary>
         /// Gets items in a Plex collection.
         /// </summary>
@@ -200,7 +365,7 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                 
                 // Use all patterns since MaxUrlPatternAttempts was removed
                 int maxAttempts = urlPatterns.Count;
-                _logger.LogDebug("Trying all {MaxAttempts} URL patterns for collection {CollectionId}", maxAttempts, collectionId);
+                _logger.LogCollectionUrlPatterns(maxAttempts, collectionId);
                 
                 using var client = _httpClientFactory.CreateClient();
                 bool success = false;
@@ -211,7 +376,7 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                     try
                     {
                         var url = urlPatterns[i];
-                        _logger.LogDebug("Trying URL pattern {AttemptNumber}/{MaxAttempts}: {Url}", i + 1, maxAttempts, url);
+                        _logger.LogTryingUrlPattern(i + 1, maxAttempts, url.ToString());
                         
                         var response = await client.GetAsync(url).ConfigureAwait(false);
                         response.EnsureSuccessStatusCode();
@@ -232,6 +397,40 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                                 Type = element.Attribute("type")?.Value ?? "movie"
                             };
                             
+                            // Set thumbnail URL if available
+                            string? thumbPath = element.Attribute("thumb")?.Value;
+                            if (!string.IsNullOrEmpty(thumbPath))
+                            {
+                                // Append Plex token to the URL to allow authenticated access
+                                string thumbWithToken = thumbPath;
+                                if (thumbWithToken.Contains('?', StringComparison.Ordinal))
+                                {
+                                    thumbWithToken += $"&X-Plex-Token={_token}";
+                                }
+                                else
+                                {
+                                    thumbWithToken += $"?X-Plex-Token={_token}";
+                                }
+                                item.ThumbUrl = new Uri(_baseUrl, thumbWithToken);
+                            }
+                            
+                            // Set art URL if available
+                            string? artPath = element.Attribute("art")?.Value;
+                            if (!string.IsNullOrEmpty(artPath))
+                            {
+                                // Append Plex token to the URL to allow authenticated access
+                                string artWithToken = artPath;
+                                if (artWithToken.Contains('?', StringComparison.Ordinal))
+                                {
+                                    artWithToken += $"&X-Plex-Token={_token}";
+                                }
+                                else
+                                {
+                                    artWithToken += $"?X-Plex-Token={_token}";
+                                }
+                                item.ArtUrl = new Uri(_baseUrl, artWithToken);
+                            }
+                            
                             items.Add(item);
                         }
                         
@@ -244,30 +443,90 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                                 Type = element.Attribute("type")?.Value ?? "show"
                             };
                             
+                            // Set thumbnail URL if available
+                            string? thumbPath = element.Attribute("thumb")?.Value;
+                            if (!string.IsNullOrEmpty(thumbPath))
+                            {
+                                // Append Plex token to the URL to allow authenticated access
+                                string thumbWithToken = thumbPath;
+                                if (thumbWithToken.Contains('?', StringComparison.Ordinal))
+                                {
+                                    thumbWithToken += $"&X-Plex-Token={_token}";
+                                }
+                                else
+                                {
+                                    thumbWithToken += $"?X-Plex-Token={_token}";
+                                }
+                                item.ThumbUrl = new Uri(_baseUrl, thumbWithToken);
+                            }
+                            
+                            // Set art URL if available
+                            string? artPath = element.Attribute("art")?.Value;
+                            if (!string.IsNullOrEmpty(artPath))
+                            {
+                                // Append Plex token to the URL to allow authenticated access
+                                string artWithToken = artPath;
+                                if (artWithToken.Contains('?', StringComparison.Ordinal))
+                                {
+                                    artWithToken += $"&X-Plex-Token={_token}";
+                                }
+                                else
+                                {
+                                    artWithToken += $"?X-Plex-Token={_token}";
+                                }
+                                item.ArtUrl = new Uri(_baseUrl, artWithToken);
+                            }
+                            
                             items.Add(item);
                         }
                         
                         success = true;
-                        _logger.LogDebug("Successfully retrieved {ItemCount} items using pattern {AttemptNumber}", items.Count, i + 1);
+                        _logger.LogSuccessfulUrlPattern(items.Count, i + 1);
                     }
-                    catch (Exception ex)
+                    catch (HttpRequestException ex)
                     {
-                        _logger.LogDebug(ex, "Error with URL pattern {AttemptNumber}/{MaxAttempts} for collection {CollectionId}", 
-                            i + 1, maxAttempts, collectionId);
+                        _logger.LogErrorUrlPattern(i + 1, maxAttempts, collectionId, ex);
                         
                         // Continue to the next pattern if this one failed
+                        continue;
+                    }
+                    catch (UriFormatException ex)
+                    {
+                        _logger.LogErrorUrlPattern(i + 1, maxAttempts, collectionId, ex);
+                        continue;
+                    }
+                    catch (System.Xml.XmlException ex)
+                    {
+                        _logger.LogErrorUrlPattern(i + 1, maxAttempts, collectionId, ex);
+                        continue;
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        _logger.LogErrorUrlPattern(i + 1, maxAttempts, collectionId, ex);
                         continue;
                     }
                 }
                 
                 if (!success)
                 {
-                    _logger.LogError("Failed to retrieve collection items after trying {MaxAttempts} URL patterns", maxAttempts);
+                    _logger.LogFailedUrlPatterns(maxAttempts);
                 }
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
             {
-                _logger.LogError(ex, "Error getting items from Plex collection {CollectionId}", collectionId);
+                _logger.LogErrorGettingCollectionItems(collectionId, ex);
+            }
+            catch (UriFormatException ex)
+            {
+                _logger.LogErrorGettingCollectionItems(collectionId, ex);
+            }
+            catch (System.Xml.XmlException ex)
+            {
+                _logger.LogErrorGettingCollectionItems(collectionId, ex);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogErrorGettingCollectionItems(collectionId, ex);
             }
             
             return items;
