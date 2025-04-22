@@ -93,7 +93,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             if (dryRun)
             {
                 result.Details = new DryRunDetails();
-                _logger.LogInformation("Starting DRY RUN sync - changes will not be applied");
+                _logger.LogDryRun("changes will not be applied");
                 
                 if (syncStatus != null)
                 {
@@ -113,17 +113,60 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 : new Uri(config.PlexServerUrl);
             var plexClient = new PlexClient(_httpClientFactory, _logger, plexServerUri, config.PlexApiToken, config);
             
+            // Sync library item artwork if enabled (this happens first to ensure all items have artwork before collections)
+            if (config.SyncItemArtwork)
+            {
+                _logger.LogSyncMode(dryRun ? "Simulating item artwork" : "Starting item artwork");
+                
+                if (syncStatus != null)
+                {
+                    syncStatus.Message = dryRun
+                        ? "Analyzing item artwork..."
+                        : "Syncing item artwork from Plex...";
+                    syncStatus.Progress = 5;
+                }
+                
+                if (!dryRun)
+                {
+                    // Process all libraries
+                    var libraryArtworkResult = await SyncItemArtworkFromPlexAsync(plexClient, dryRun, syncStatus).ConfigureAwait(false);
+                    result.ItemArtworkUpdated = libraryArtworkResult;
+                    
+                    _logger.LogItemArtworkSyncCompleted(result.ItemArtworkUpdated);
+                    
+                    if (syncStatus != null)
+                    {
+                        syncStatus.Message = $"Item artwork sync complete. Updated {result.ItemArtworkUpdated} items.";
+                        syncStatus.Progress = 30;
+                    }
+                }
+                else
+                {
+                    // For dry run, estimate the number of items that would be updated
+                    var libraryArtworkEstimate = await EstimateItemArtworkUpdatesAsync(plexClient, syncStatus).ConfigureAwait(false);
+                    result.ItemArtworkUpdated = libraryArtworkEstimate;
+                    
+                    _logger.LogItemArtworkSimulationCompleted(result.ItemArtworkUpdated);
+                    
+                    if (syncStatus != null)
+                    {
+                        syncStatus.Message = $"Item artwork analysis complete. Would update {result.ItemArtworkUpdated} items.";
+                        syncStatus.Progress = 30;
+                    }
+                }
+            }
+            
             // Sync collections if enabled
             if (config.SyncCollections)
             {
-                _logger.LogInformation("{Mode} collection sync from Plex", dryRun ? "Simulating" : "Starting");
+                _logger.LogCollectionSync(dryRun ? "Simulating" : "Starting");
                 
                 if (syncStatus != null)
                 {
                     syncStatus.Message = dryRun 
                         ? "Analyzing collections..." 
                         : "Syncing collections from Plex...";
-                    syncStatus.Progress = 10;
+                    syncStatus.Progress = 40;
                 }
                 
                 // Delete existing collections if configured to do so
@@ -132,11 +175,11 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     if (syncStatus != null)
                     {
                         syncStatus.Message = "Removing existing collections...";
-                        syncStatus.Progress = 15;
+                        syncStatus.Progress = 45;
                     }
                     
                     var deletedCount = await DeleteExistingCollectionsAsync().ConfigureAwait(false);
-                    _logger.LogInformation("Removed {Count} existing collections (emptied and made invisible)", deletedCount);
+                    _logger.LogRemovedExistingCollections(deletedCount);
                 }
                 else if (config.DeleteBeforeSync && dryRun)
                 {
@@ -145,7 +188,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     {
                         IncludeItemTypes = new[] { BaseItemKind.BoxSet }
                     });
-                    _logger.LogInformation("Would remove {Count} existing collections (empty and make invisible)", collections.Count());
+                    _logger.LogWouldRemoveExistingCollections(collections.Count());
                 }
                 
                 if (syncStatus != null)
@@ -153,7 +196,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     syncStatus.Message = dryRun 
                         ? "Analyzing collections from Plex..." 
                         : "Processing collections from Plex...";
-                    syncStatus.Progress = 20;
+                    syncStatus.Progress = 50;
                 }
                 
                 var collectionResults = await SyncCollectionsFromPlexAsync(plexClient, dryRun, syncStatus).ConfigureAwait(false);
@@ -166,19 +209,50 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     // The collectionsToAdd and collectionsToUpdate lists are populated in SyncCollectionsFromPlexAsync
                     result.Details.CollectionsToAdd.AddRange(collectionResults.collectionsToAdd);
                     result.Details.CollectionsToUpdate.AddRange(collectionResults.collectionsToUpdate);
+                    
+                    // For dry run, estimate the item artwork count based on the total items found
+                    if (config.SyncItemArtwork)
+                    {
+                        // Set an estimated number for items with artwork updates
+                        // This is approximate since we don't actually download artwork in dry run mode
+                        int itemArtworkEstimate = 0;
+                        
+                        // Estimate based on matched items (which would have artwork processed)
+                        foreach (var collection in collectionResults.collectionsToAdd)
+                        {
+                            itemArtworkEstimate += collection.Items.Count;
+                        }
+                        
+                        foreach (var collection in collectionResults.collectionsToUpdate)
+                        {
+                            itemArtworkEstimate += collection.Items.Count;
+                        }
+                        
+                        result.ItemArtworkUpdated = itemArtworkEstimate;
+                    }
                 }
                 
-                _logger.LogInformation("Collection sync {Status}. Would add {Added} collections, would update {Updated} collections", 
-                    dryRun ? "simulation completed" : "completed", 
-                    result.CollectionsAdded, 
-                    result.CollectionsUpdated);
+                if (config.SyncItemArtwork) {
+                    _logger.LogCollectionArtworkStatus(
+                        dryRun ? "simulation completed" : "completed", 
+                        result.CollectionsAdded, 
+                        result.CollectionsUpdated,
+                        result.ItemArtworkUpdated);
+                } else {
+                    _logger.LogCollectionStatus(
+                        dryRun ? "simulation completed" : "completed");
+                }
                     
                 if (syncStatus != null)
                 {
+                    string itemsMessage = config.SyncItemArtwork ? 
+                        (dryRun ? $", would update artwork for {result.ItemArtworkUpdated} items" : $", updated artwork for {result.ItemArtworkUpdated} items") 
+                        : "";
+                        
                     syncStatus.Message = dryRun
-                        ? $"Collection analysis complete. Would add {result.CollectionsAdded}, update {result.CollectionsUpdated} collections."
-                        : $"Collection sync complete. Added {result.CollectionsAdded}, updated {result.CollectionsUpdated} collections.";
-                    syncStatus.Progress = 50;
+                        ? $"Collection analysis complete. Would add {result.CollectionsAdded}, update {result.CollectionsUpdated} collections{itemsMessage}."
+                        : $"Collection sync complete. Added {result.CollectionsAdded}, updated {result.CollectionsUpdated} collections{itemsMessage}.";
+                    syncStatus.Progress = 70;
                 }
             }
             
@@ -188,9 +262,30 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             // Complete the sync operation
             if (syncStatus != null)
             {
+                string completionMessage = "Sync operation completed successfully.";
+                
+                // Add summary of what was synced
+                if (config.SyncCollections || config.SyncItemArtwork)
+                {
+                    List<string> syncedItems = new List<string>();
+                    
+                    if (config.SyncCollections)
+                    {
+                        syncedItems.Add($"{(dryRun ? "would add" : "added")} {result.CollectionsAdded} collections, " +
+                                      $"{(dryRun ? "would update" : "updated")} {result.CollectionsUpdated} collections");
+                    }
+                    
+                    if (config.SyncItemArtwork)
+                    {
+                        syncedItems.Add($"{(dryRun ? "would update" : "updated")} artwork for {result.ItemArtworkUpdated} items");
+                    }
+                    
+                    completionMessage = $"Sync operation completed successfully. {string.Join(" and ", syncedItems)}.";
+                }
+                
                 syncStatus.IsComplete = true;
                 syncStatus.Result = result;
-                syncStatus.Message = "Sync operation completed successfully.";
+                syncStatus.Message = completionMessage;
                 syncStatus.Progress = 100;
                 syncStatus.EndTime = DateTime.UtcNow;
             }
@@ -243,9 +338,21 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                             lockProperty.SetValue(collection, true);
                         }
                     }
-                    catch (Exception ex)
+                    catch (InvalidOperationException ex)
                     {
-                        _logger.LogWarning(ex, "Error setting visibility properties on collection {Id}", collection.Id);
+                        _logger.LogErrorSettingVisibility(collection.Id, ex);
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        _logger.LogErrorSettingVisibility(collection.Id, ex);
+                    }
+                    catch (TargetInvocationException ex)
+                    {
+                        _logger.LogErrorSettingVisibility(collection.Id, ex);
+                    }
+                    catch (MethodAccessException ex)
+                    {
+                        _logger.LogErrorSettingVisibility(collection.Id, ex);
                     }
                     
                     // Update the collection in the database
@@ -255,12 +362,24 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         ItemUpdateType.MetadataEdit,
                         CancellationToken.None).ConfigureAwait(false);
                     
-                    _logger.LogDebug("Made collection invisible: {Id}", collection.Id);
+                    _logger.LogCollectionInvisible(collection.Id);
                     count++;
                 }
-                catch (Exception ex)
+                catch (InvalidOperationException ex)
                 {
-                    _logger.LogError(ex, "Error processing collection: {Name}", collection.Name);
+                    _logger.LogErrorCollection(collection.Name, ex);
+                }
+                catch (ArgumentException ex)
+                {
+                    _logger.LogErrorCollection(collection.Name, ex);
+                }
+                catch (IOException ex)
+                {
+                    _logger.LogErrorCollection(collection.Name, ex);
+                }
+                catch (HttpRequestException ex)
+                {
+                    _logger.LogErrorCollection(collection.Name, ex);
                 }
             }
             
@@ -313,9 +432,9 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         syncStatus.Message = $"Processing library {processedLibraries} of {totalLibraries}...";
                     }
                     
-                    _logger.LogDebug($"Processing library ID: {libraryId}");
+                    _logger.LogProcessingLibrary(libraryId);
                     var collections = await plexClient.GetCollections(libraryId).ConfigureAwait(false);
-                    _logger.LogDebug($"Found {collections.Count} collections in Plex library");
+                    _logger.LogFoundCollections(libraryId, collections.Count);
                     
                     // Track collection progress within this library
                     int totalCollections = collections.Count;
@@ -332,7 +451,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                                $"Collection {processedCollections} of {totalCollections} ({collection.Title})";
                         }
                         
-                        _logger.LogDebug($"Processing collection: {collection.Title}");
+                        _logger.LogProcessingCollection(collection.Title);
                         
                         try
                         {
@@ -349,7 +468,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                             
                             // Get collection items from Plex
                             var plexItems = await plexClient.GetCollectionItems(collection.Id).ConfigureAwait(false);
-                            _logger.LogDebug("Found {Count} items in Plex collection", plexItems.Count);
+                            _logger.LogCollectionItems(plexItems.Count);
                             
                             // Find matching items in Jellyfin
                             var jellyfinItems = new List<Guid>();
@@ -370,21 +489,21 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                 {
                                     jellyfinItems.Add(jellyfinItem.Id);
                                     matchedItemTitles.Add(plexItem.Title);
-                                    _logger.LogDebug("Matched Plex item '{ItemTitle}' to Jellyfin item with ID: {ItemId}", 
-                                        plexItem.Title, jellyfinItem.Id);
+                                    _logger.LogMatchedItem(plexItem.Title, jellyfinItem.Id);
+                                    
+                                    // Note: We no longer process item artwork here as we now have a dedicated method 
+                                    // that processes all items, including ones not in collections
                                 }
                                 else
                                 {
-                                    _logger.LogDebug("Could not find matching Jellyfin item for Plex item: {ItemTitle}", 
-                                        plexItem.Title);
+                                    _logger.LogNoMatchItem(plexItem.Title);
                                 }
                             }
                             
                             if (existingCollection == null)
                             {
                                 // Create new collection
-                                _logger.LogInformation("{Action} new collection: {CollectionTitle}", 
-                                    dryRun ? "Would create" : "Creating", collection.Title);
+                                _logger.LogNewCollection(dryRun ? "Would create" : "Creating", collection.Title);
                                 
                                 // In dry run mode, just record what would be done
                                 if (dryRun)
@@ -412,7 +531,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                         if (existingCollectionCheck != null)
                                         {
                                             // If one still exists with this name, we need to make it invisible to avoid conflicts
-                                            _logger.LogWarning("Found existing collection with name {Title}, making it invisible first", collection.Title);
+                                            _logger.LogExistingCollectionConflict(collection.Title);
                                             existingCollectionCheck.Name = $".conflict_{existingCollectionCheck.Id}_{DateTime.Now.Ticks}";
                                             await _libraryManager.UpdateItemAsync(
                                                 existingCollectionCheck,
@@ -431,7 +550,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                         
                                         // Create the collection
                                         var newCollectionId = await _collectionManager.CreateCollectionAsync(options).ConfigureAwait(false);
-                                        _logger.LogDebug("Created collection with ID: {CollectionId}", newCollectionId);
+                                        _logger.LogCreatedCollection(newCollectionId.ToString());
                                         
                                         // Use GetItemList instead of GetItemById to avoid type conversion issues
                                         var newlyCreatedCollections = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
@@ -462,25 +581,31 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                             }
                                             
                                             added++;
-                                            _logger.LogInformation("Successfully created collection: {CollectionTitle}", collection.Title);
+                                            _logger.LogSuccessfullyCreatedCollection(collection.Title);
                                         }
                                         else
                                         {
-                                            _logger.LogWarning("Unable to retrieve newly created collection: {CollectionTitle}", 
-                                                collection.Title);
+                                            _logger.LogUnableToRetrieveCollection(collection.Title);
                                         }
                                     }
-                                    catch (Exception ex)
+                                    catch (InvalidOperationException ex)
                                     {
-                                        _logger.LogError(ex, "Error creating collection: {CollectionTitle}", collection.Title);
+                                        _logger.LogErrorCreatingCollection(collection.Title, ex);
+                                    }
+                                    catch (ArgumentException ex)
+                                    {
+                                        _logger.LogErrorCreatingCollection(collection.Title, ex);
+                                    }
+                                    catch (IOException ex)
+                                    {
+                                        _logger.LogErrorCreatingCollection(collection.Title, ex);
                                     }
                                 }
                             }
                             else
                             {
                                 // Update existing collection
-                                _logger.LogInformation("{Action} existing collection: {CollectionTitle}", 
-                                    dryRun ? "Would update" : "Updating", collection.Title);
+                                _logger.LogUpdateCollection(dryRun ? "Would update" : "Updating", collection.Title);
                                 
                                 // In dry run mode, just record what would be done
                                 if (dryRun)
@@ -520,18 +645,38 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                         }
                                         
                                         updated++;
-                                        _logger.LogInformation("Successfully updated collection: {CollectionTitle}", collection.Title);
+                                        _logger.LogSuccessfullyUpdatedCollection(collection.Title);
                                     }
-                                    catch (Exception ex)
+                                    catch (InvalidOperationException ex)
                                     {
-                                        _logger.LogError(ex, "Error updating collection: {CollectionTitle}", collection.Title);
+                                        _logger.LogErrorUpdatingCollection(collection.Title, ex);
+                                    }
+                                    catch (ArgumentException ex)
+                                    {
+                                        _logger.LogErrorUpdatingCollection(collection.Title, ex);
+                                    }
+                                    catch (IOException ex)
+                                    {
+                                        _logger.LogErrorUpdatingCollection(collection.Title, ex);
                                     }
                                 }
                             }
                         }
-                        catch (Exception ex)
+                        catch (InvalidOperationException ex)
                         {
-                            _logger.LogError(ex, "Error processing collection: {CollectionTitle}", collection.Title);
+                            _logger.LogErrorCollection(collection.Title, ex);
+                        }
+                        catch (ArgumentException ex)
+                        {
+                            _logger.LogErrorCollection(collection.Title, ex);
+                        }
+                        catch (HttpRequestException ex)
+                        {
+                            _logger.LogErrorCollection(collection.Title, ex);
+                        }
+                        catch (IOException ex)
+                        {
+                            _logger.LogErrorCollection(collection.Title, ex);
                         }
                     }
                 }
@@ -544,13 +689,40 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     updated = collectionsToUpdate.Count;
                 }
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
             {
-                _logger.LogError(ex, "Error syncing collections");
+                _logger.LogErrorSyncingCollections(ex);
                 
                 if (syncStatus != null)
                 {
-                    syncStatus.Message = $"Error syncing collections: {ex.Message}";
+                    syncStatus.Message = $"Error connecting to Plex: {ex.Message}";
+                }
+            }
+            catch (IOException ex)
+            {
+                _logger.LogErrorSyncingCollections(ex);
+                
+                if (syncStatus != null)
+                {
+                    syncStatus.Message = $"I/O error during sync: {ex.Message}";
+                }
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogErrorSyncingCollections(ex);
+                
+                if (syncStatus != null)
+                {
+                    syncStatus.Message = $"Error during sync operation: {ex.Message}";
+                }
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogErrorSyncingCollections(ex);
+                
+                if (syncStatus != null)
+                {
+                    syncStatus.Message = $"Error with invalid arguments: {ex.Message}";
                 }
             }
             
@@ -567,11 +739,11 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         {
             if (jellyfinCollection == null)
             {
-                _logger.LogWarning("Cannot process artwork for null collection");
+                _logger.LogCannotProcessArtwork("collection");
                 return;
             }
             
-            _logger.LogDebug("Processing artwork for collection: {CollectionName}", jellyfinCollection.Name);
+            _logger.LogProcessingArtwork("collection", jellyfinCollection.Name);
             
             using var httpClient = _httpClientFactory.CreateClient();
             httpClient.DefaultRequestHeaders.Add("User-Agent", "Jellyfin-Plexyfin-Plugin");
@@ -582,7 +754,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 // Process primary image (poster/thumbnail)
                 if (plexCollection.ThumbUrl != null)
                 {
-                    _logger.LogDebug("Downloading thumbnail: {ThumbUrl}", plexCollection.ThumbUrl);
+                    _logger.LogDownloadingThumbnail("collection", plexCollection.ThumbUrl.ToString());
                     
                     var response = await httpClient.GetAsync(plexCollection.ThumbUrl).ConfigureAwait(false);
                     response.EnsureSuccessStatusCode();
@@ -591,14 +763,15 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     string mimeType = "image/png"; // Default to image/png
                     if (response.Content.Headers.ContentType != null)
                     {
-                        mimeType = response.Content.Headers.ContentType.MediaType;
-                        _logger.LogDebug("Using MIME type from response: {MimeType}", mimeType);
+                        // Using null-conditional operator and null-coalescing operator to safely handle nullable
+                        mimeType = response.Content.Headers.ContentType?.MediaType ?? "image/png";
+                        _logger.LogMimeTypeFromResponse(mimeType);
                     }
                     else
                     {
                         // Try to determine MIME type from URL
                         mimeType = GetMimeTypeFromUrl(plexCollection.ThumbUrl.ToString());
-                        _logger.LogDebug("Using MIME type from URL: {MimeType}", mimeType);
+                        _logger.LogMimeTypeFromUrl(mimeType);
                     }
                     
                     // Use a memory stream to fully buffer the content before passing it to Jellyfin's image saver
@@ -638,7 +811,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         }
                         catch (IOException ex)
                         {
-                            _logger.LogWarning(ex, "I/O error saving primary image for collection {CollectionName}, will retry after delay", jellyfinCollection.Name);
+                            _logger.LogIoErrorSavingImage("collection", ex);
                             // Add a longer delay and try once more
                             await Task.Delay(500).ConfigureAwait(false);
                             
@@ -653,18 +826,18 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         }
                             
                         hasChanges = true;
-                        _logger.LogDebug("Successfully saved thumbnail for collection: {CollectionName}", jellyfinCollection.Name);
+                        _logger.LogSavedThumbnail("collection", jellyfinCollection.Name);
                     }
                     else
                     {
-                        _logger.LogWarning("Provider manager is null, cannot save thumbnail for collection: {CollectionName}", jellyfinCollection.Name);
+                        _logger.LogProviderManagerNull("collection", jellyfinCollection.Name);
                     }
                 }
                 
                 // Process background image (art)
                 if (plexCollection.ArtUrl != null)
                 {
-                    _logger.LogDebug("Downloading art: {ArtUrl}", plexCollection.ArtUrl);
+                    _logger.LogDownloadingArt(plexCollection.ArtUrl.ToString());
                     
                     var response = await httpClient.GetAsync(plexCollection.ArtUrl).ConfigureAwait(false);
                     response.EnsureSuccessStatusCode();
@@ -673,14 +846,15 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     string mimeType = "image/png"; // Default to image/png
                     if (response.Content.Headers.ContentType != null)
                     {
-                        mimeType = response.Content.Headers.ContentType.MediaType;
-                        _logger.LogDebug("Using MIME type from response: {MimeType}", mimeType);
+                        // Using null-conditional operator and null-coalescing operator to safely handle nullable
+                        mimeType = response.Content.Headers.ContentType?.MediaType ?? "image/png";
+                        _logger.LogMimeTypeFromResponse(mimeType);
                     }
                     else
                     {
                         // Try to determine MIME type from URL
                         mimeType = GetMimeTypeFromUrl(plexCollection.ArtUrl.ToString());
-                        _logger.LogDebug("Using MIME type from URL: {MimeType}", mimeType);
+                        _logger.LogMimeTypeFromUrl(mimeType);
                     }
                     
                     // Use a memory stream to fully buffer the content before passing it to Jellyfin's image saver
@@ -720,7 +894,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         }
                         catch (IOException ex)
                         {
-                            _logger.LogWarning(ex, "I/O error saving backdrop image for collection {CollectionName}, will retry after delay", jellyfinCollection.Name);
+                            _logger.LogIoErrorSavingBackdrop("collection", ex);
                             // Add a longer delay and try once more
                             await Task.Delay(500).ConfigureAwait(false);
                             
@@ -735,11 +909,11 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         }
                             
                         hasChanges = true;
-                        _logger.LogDebug("Successfully saved art for collection: {CollectionName}", jellyfinCollection.Name);
+                        _logger.LogSavedArtwork("collection");
                     }
                     else
                     {
-                        _logger.LogWarning("Provider manager is null, cannot save backdrop for collection: {CollectionName}", jellyfinCollection.Name);
+                        _logger.LogCannotSaveBackdrop("collection");
                     }
                 }
                 
@@ -752,12 +926,250 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         ItemUpdateType.ImageUpdate,
                         CancellationToken.None).ConfigureAwait(false);
                         
-                    _logger.LogDebug("Updated repository with new images for collection: {CollectionName}", jellyfinCollection.Name);
+                    _logger.LogUpdatedRepoWithImages("collection");
                 }
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
             {
-                _logger.LogError(ex, "Error processing artwork for collection {CollectionName}", jellyfinCollection.Name);
+                _logger.LogErrorProcessingArtwork("collection", jellyfinCollection.Name, ex);
+            }
+            catch (IOException ex)
+            {
+                _logger.LogErrorProcessingArtwork("collection", jellyfinCollection.Name, ex);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogErrorProcessingArtwork("collection", jellyfinCollection.Name, ex);
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogErrorProcessingArtwork("collection", jellyfinCollection.Name, ex);
+            }
+            catch (NullReferenceException ex)
+            {
+                _logger.LogErrorProcessingArtwork("collection", jellyfinCollection.Name, ex);
+            }
+        }
+        
+        /// <summary>
+        /// Processes artwork for an individual movie or TV show item.
+        /// </summary>
+        /// <param name="jellyfinItem">The Jellyfin item.</param>
+        /// <param name="plexItem">The Plex item.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        private async Task ProcessItemArtwork(BaseItem jellyfinItem, PlexItem plexItem)
+        {
+            if (jellyfinItem == null)
+            {
+                _logger.LogCannotProcessArtwork("item");
+                return;
+            }
+            
+            _logger.LogProcessingArtwork("item", jellyfinItem.Name);
+            
+            using var httpClient = _httpClientFactory.CreateClient();
+            httpClient.DefaultRequestHeaders.Add("User-Agent", "Jellyfin-Plexyfin-Plugin");
+            bool hasChanges = false;
+            
+            try 
+            {
+                // Process primary image (poster/thumbnail)
+                if (plexItem.ThumbUrl != null)
+                {
+                    _logger.LogDownloadingThumbnail("item", plexItem.ThumbUrl.ToString());
+                    
+                    var response = await httpClient.GetAsync(plexItem.ThumbUrl).ConfigureAwait(false);
+                    response.EnsureSuccessStatusCode();
+                    
+                    // Get content type from the response if available
+                    string mimeType = "image/png"; // Default to image/png
+                    if (response.Content.Headers.ContentType != null)
+                    {
+                        // Using null-conditional operator and null-coalescing operator to safely handle nullable
+                        mimeType = response.Content.Headers.ContentType?.MediaType ?? "image/png";
+                        // MIME type logging handled internally
+                    }
+                    else
+                    {
+                        // Try to determine MIME type from URL
+                        mimeType = GetMimeTypeFromUrl(plexItem.ThumbUrl.ToString());
+                        // MIME type logging handled internally
+                    }
+                    
+                    // Use a memory stream to fully buffer the content before passing it to Jellyfin's image saver
+                    // This helps avoid file locking issues by ensuring we're not trying to read and write at the same time
+                    byte[] imageData;
+                    using (var imageStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                    {
+                        using var memStream = new MemoryStream();
+                        await imageStream.CopyToAsync(memStream).ConfigureAwait(false);
+                        imageData = memStream.ToArray();
+                    }
+                    
+                    // Add a small delay to allow any file handles to be completely closed
+                    await Task.Delay(100).ConfigureAwait(false);
+                    
+                    // Set the image directly on the BaseItem
+                    if (_providerManager != null)
+                    {
+                        await _libraryManager.UpdateItemAsync(
+                            jellyfinItem,
+                            jellyfinItem.GetParent(),
+                            ItemUpdateType.ImageUpdate,
+                            CancellationToken.None).ConfigureAwait(false);
+                            
+                        // Use memory stream and ImageType enum
+                        // Create a new memory stream for each save operation to avoid sharing stream positions
+                        using var saveStream = new MemoryStream(imageData);
+                        try
+                        {
+                            await _providerManager.SaveImage(
+                                jellyfinItem,
+                                saveStream,
+                                mimeType, // Use the detected MIME type
+                                ImageType.Primary,
+                                null,
+                                CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch (IOException ex)
+                        {
+                            _logger.LogIoErrorSavingImage("item", ex);
+                            // Add a longer delay and try once more
+                            await Task.Delay(500).ConfigureAwait(false);
+                            
+                            using var retryStream = new MemoryStream(imageData);
+                            await _providerManager.SaveImage(
+                                jellyfinItem,
+                                retryStream,
+                                mimeType,
+                                ImageType.Primary,
+                                null,
+                                CancellationToken.None).ConfigureAwait(false);
+                        }
+                            
+                        hasChanges = true;
+                        _logger.LogSavedThumbnail("item", jellyfinItem.Name);
+                    }
+                    else
+                    {
+                        _logger.LogProviderManagerNull("item", jellyfinItem.Name);
+                    }
+                }
+                
+                // Process background image (art)
+                if (plexItem.ArtUrl != null)
+                {
+                    _logger.LogDownloadingItemArt("item", plexItem.ArtUrl.ToString());
+                    
+                    var response = await httpClient.GetAsync(plexItem.ArtUrl).ConfigureAwait(false);
+                    response.EnsureSuccessStatusCode();
+                    
+                    // Get content type from the response if available
+                    string mimeType = "image/png"; // Default to image/png
+                    if (response.Content.Headers.ContentType != null)
+                    {
+                        // Using null-conditional operator and null-coalescing operator to safely handle nullable
+                        mimeType = response.Content.Headers.ContentType?.MediaType ?? "image/png";
+                        _logger.LogMimeTypeFromResponse(mimeType);
+                    }
+                    else
+                    {
+                        // Try to determine MIME type from URL
+                        mimeType = GetMimeTypeFromUrl(plexItem.ArtUrl.ToString());
+                        _logger.LogMimeTypeFromUrl(mimeType);
+                    }
+                    
+                    // Use a memory stream to fully buffer the content before passing it to Jellyfin's image saver
+                    // This helps avoid file locking issues by ensuring we're not trying to read and write at the same time
+                    byte[] imageData;
+                    using (var imageStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                    {
+                        using var memStream = new MemoryStream();
+                        await imageStream.CopyToAsync(memStream).ConfigureAwait(false);
+                        imageData = memStream.ToArray();
+                    }
+                    
+                    // Add a small delay to allow any file handles to be completely closed
+                    await Task.Delay(100).ConfigureAwait(false);
+                    
+                    // Set the image directly on the BaseItem
+                    if (_providerManager != null)
+                    {
+                        await _libraryManager.UpdateItemAsync(
+                            jellyfinItem,
+                            jellyfinItem.GetParent(),
+                            ItemUpdateType.ImageUpdate,
+                            CancellationToken.None).ConfigureAwait(false);
+                            
+                        // Use memory stream and ImageType enum
+                        // Create a new memory stream for each save operation to avoid sharing stream positions
+                        using var saveStream = new MemoryStream(imageData);
+                        try
+                        {
+                            await _providerManager.SaveImage(
+                                jellyfinItem,
+                                saveStream,
+                                mimeType, // Use the detected MIME type
+                                ImageType.Backdrop,
+                                null,
+                                CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch (IOException ex)
+                        {
+                            _logger.LogIoErrorSavingBackdrop("item", ex);
+                            // Add a longer delay and try once more
+                            await Task.Delay(500).ConfigureAwait(false);
+                            
+                            using var retryStream = new MemoryStream(imageData);
+                            await _providerManager.SaveImage(
+                                jellyfinItem,
+                                retryStream,
+                                mimeType,
+                                ImageType.Backdrop,
+                                null,
+                                CancellationToken.None).ConfigureAwait(false);
+                        }
+                            
+                        hasChanges = true;
+                        _logger.LogSavedArtwork("item");
+                    }
+                    else
+                    {
+                        _logger.LogCannotSaveBackdrop("item");
+                    }
+                }
+                
+                // Refresh artwork after changes
+                if (hasChanges)
+                {
+                    await _libraryManager.UpdateItemAsync(
+                        jellyfinItem,
+                        jellyfinItem.GetParent(),
+                        ItemUpdateType.ImageUpdate,
+                        CancellationToken.None).ConfigureAwait(false);
+                        
+                    _logger.LogUpdatedRepoWithImages("item");
+                }
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogErrorProcessingArtwork("item", jellyfinItem.Name, ex);
+            }
+            catch (IOException ex)
+            {
+                _logger.LogErrorProcessingArtwork("item", jellyfinItem.Name, ex);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogErrorProcessingArtwork("item", jellyfinItem.Name, ex);
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogErrorProcessingArtwork("item", jellyfinItem.Name, ex);
+            }
+            catch (NullReferenceException ex)
+            {
+                _logger.LogErrorProcessingArtwork("item", jellyfinItem.Name, ex);
             }
         }
         
@@ -797,11 +1209,305 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 // If we get here and current is not null, return its name
                 return current?.Name;
             }
-            catch (Exception ex)
+            catch (NullReferenceException ex)
             {
-                _logger.LogError(ex, "Error getting library name for item {ItemName}", item.Name);
+                _logger.LogErrorGettingLibraryName(item.Name, ex);
                 return null;
             }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogErrorGettingLibraryName(item.Name, ex);
+                return null;
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogErrorGettingLibraryName(item.Name, ex);
+                return null;
+            }
+        }
+        
+        /// <summary>
+        /// Syncs artwork for all items in all selected libraries.
+        /// </summary>
+        /// <param name="plexClient">The Plex client.</param>
+        /// <param name="dryRun">If true, changes will not be applied, only reported.</param>
+        /// <param name="syncStatus">Optional sync status object for progress tracking.</param>
+        /// <returns>The number of items with artwork updated.</returns>
+        private async Task<int> SyncItemArtworkFromPlexAsync(
+            PlexClient plexClient,
+            bool dryRun = false,
+            SyncStatus? syncStatus = null)
+        {
+            int artworkUpdated = 0;
+            
+            try
+            {
+                // Get selected libraries from configuration
+                var config = Plugin.Instance!.Configuration;
+                var selectedLibraries = config.SelectedLibraries ?? new List<string>();
+                
+                if (selectedLibraries.Count == 0)
+                {
+                    _logger.LogNoLibrariesSelected();
+                    return 0;
+                }
+                
+                // Track progress metrics
+                int totalLibraries = selectedLibraries.Count;
+                int processedLibraries = 0;
+                
+                // Process each selected library
+                foreach (var libraryId in selectedLibraries)
+                {
+                    processedLibraries++;
+                    
+                    if (syncStatus != null)
+                    {
+                        int libraryProgress = processedLibraries * 100 / totalLibraries;
+                        // Scale progress between 5-30%
+                        int scaledProgress = 5 + (libraryProgress * 25 / 100);
+                        syncStatus.Progress = scaledProgress;
+                        syncStatus.Message = $"Processing library {processedLibraries} of {totalLibraries} for item artwork...";
+                    }
+                    
+                    _logger.LogProcessingLibraryArtwork(libraryId);
+                    
+                    // Get all items in the library
+                    var plexItems = await plexClient.GetLibraryItems(libraryId).ConfigureAwait(false);
+                    _logger.LogFoundPlexItems(plexItems.Count, libraryId);
+                    
+                    // Track item progress within this library
+                    int totalItems = plexItems.Count;
+                    int processedItems = 0;
+                    
+                    foreach (var plexItem in plexItems)
+                    {
+                        processedItems++;
+                        
+                        if (syncStatus != null && totalItems > 0 && processedItems % 10 == 0)
+                        {
+                            // Update progress every 10 items to avoid excessive UI updates
+                            syncStatus.Message = $"Processing library {processedLibraries} of {totalLibraries}: " +
+                                               $"Item {processedItems} of {totalItems} ({plexItem.Title})";
+                        }
+                        
+                        _logger.LogProcessingItemArtwork(plexItem.Title);
+                        
+                        try
+                        {
+                            // Try to find a matching item in Jellyfin
+                            var matchingItems = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
+                            {
+                                Name = plexItem.Title,
+                                IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series }
+                            });
+                            
+                            var jellyfinItem = matchingItems.FirstOrDefault();
+                            
+                            if (jellyfinItem != null)
+                            {
+                                _logger.LogMatchedItem(plexItem.Title, jellyfinItem.Id);
+                                
+                                // Process artwork for this item
+                                if (!dryRun)
+                                {
+                                    await ProcessItemArtwork(jellyfinItem, plexItem).ConfigureAwait(false);
+                                    artworkUpdated++;
+                                }
+                            }
+                            else
+                            {
+                                _logger.LogNoMatchItem(plexItem.Title);
+                            }
+                        }
+                        catch (HttpRequestException ex)
+                        {
+                            _logger.LogErrorProcessingArtwork("item", plexItem.Title, ex);
+                        }
+                        catch (IOException ex)
+                        {
+                            _logger.LogErrorProcessingArtwork("item", plexItem.Title, ex);
+                        }
+                        catch (InvalidOperationException ex)
+                        {
+                            _logger.LogErrorProcessingArtwork("item", plexItem.Title, ex);
+                        }
+                        catch (ArgumentException ex)
+                        {
+                            _logger.LogErrorProcessingArtwork("item", plexItem.Title, ex);
+                        }
+                    }
+                    
+                    _logger.LogLibraryArtworkComplete(libraryId, artworkUpdated);
+                }
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogErrorSyncingItemArtwork(ex);
+                
+                if (syncStatus != null)
+                {
+                    syncStatus.Message = $"Error connecting to Plex: {ex.Message}";
+                }
+            }
+            catch (IOException ex)
+            {
+                _logger.LogErrorSyncingItemArtwork(ex);
+                
+                if (syncStatus != null)
+                {
+                    syncStatus.Message = $"I/O error during image processing: {ex.Message}";
+                }
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogErrorSyncingItemArtwork(ex);
+                
+                if (syncStatus != null)
+                {
+                    syncStatus.Message = $"Error during sync operation: {ex.Message}";
+                }
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogErrorSyncingItemArtwork(ex);
+                
+                if (syncStatus != null)
+                {
+                    syncStatus.Message = $"Error with invalid arguments: {ex.Message}";
+                }
+            }
+            
+            return artworkUpdated;
+        }
+        
+        /// <summary>
+        /// Estimates the number of items that would have artwork updated in a dry run.
+        /// </summary>
+        /// <param name="plexClient">The Plex client.</param>
+        /// <param name="syncStatus">Optional sync status object for progress tracking.</param>
+        /// <returns>The estimated number of items with artwork that would be updated.</returns>
+        private async Task<int> EstimateItemArtworkUpdatesAsync(
+            PlexClient plexClient, 
+            SyncStatus? syncStatus = null)
+        {
+            int estimate = 0;
+            
+            try
+            {
+                // Get selected libraries from configuration
+                var config = Plugin.Instance!.Configuration;
+                var selectedLibraries = config.SelectedLibraries ?? new List<string>();
+                
+                if (selectedLibraries.Count == 0)
+                {
+                    _logger.LogNoLibrariesSelected();
+                    return 0;
+                }
+                
+                // Track progress metrics
+                int totalLibraries = selectedLibraries.Count;
+                int processedLibraries = 0;
+                
+                // Sample a subset of items from each library to estimate the total
+                foreach (var libraryId in selectedLibraries)
+                {
+                    processedLibraries++;
+                    
+                    if (syncStatus != null)
+                    {
+                        int libraryProgress = processedLibraries * 100 / totalLibraries;
+                        // Scale progress between 5-30%
+                        int scaledProgress = 5 + (libraryProgress * 25 / 100);
+                        syncStatus.Progress = scaledProgress;
+                        syncStatus.Message = $"Estimating artwork updates for library {processedLibraries} of {totalLibraries}...";
+                    }
+                    
+                    _logger.LogEstimatingArtworkUpdates(libraryId);
+                    
+                    // For dry run, we'll either sample items or just count them based on library size
+                    try
+                    {
+                        // Count items in library with artwork
+                        var plexItems = await plexClient.GetLibraryItems(libraryId).ConfigureAwait(false);
+                        
+                        // Count items that have artwork
+                        int itemsWithArtwork = plexItems.Count(item => item.ThumbUrl != null || item.ArtUrl != null);
+                        
+                        // Count matching items in Jellyfin
+                        int matchedItems = 0;
+                        
+                        // For large libraries, just sample a subset to estimate
+                        var sampleSize = plexItems.Count > 100 ? 50 : plexItems.Count;
+                        var sampleItems = plexItems.Take(sampleSize).ToList();
+                        
+                        foreach (var plexItem in sampleItems)
+                        {
+                            var matchingItems = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
+                            {
+                                Name = plexItem.Title,
+                                IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series }
+                            });
+                            
+                            if (matchingItems.Any())
+                            {
+                                matchedItems++;
+                            }
+                        }
+                        
+                        // Calculate match rate and extrapolate to full library
+                        if (sampleSize > 0)
+                        {
+                            double matchRate = (double)matchedItems / sampleSize;
+                            int estimatedMatches = (int)(matchRate * itemsWithArtwork);
+                            estimate += estimatedMatches;
+                            
+                            _logger.LogEstimatedArtworkUpdates(libraryId, estimatedMatches, sampleSize, matchRate);
+                        }
+                    }
+                    catch (HttpRequestException ex)
+                    {
+                        _logger.LogErrorEstimatingLibraryArtwork(libraryId, ex);
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        _logger.LogErrorEstimatingLibraryArtwork(libraryId, ex);
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        _logger.LogErrorEstimatingLibraryArtwork(libraryId, ex);
+                    }
+                }
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogErrorEstimatingItemArtwork(ex);
+                
+                if (syncStatus != null)
+                {
+                    syncStatus.Message = $"Error connecting to Plex: {ex.Message}";
+                }
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogErrorEstimatingItemArtwork(ex);
+                
+                if (syncStatus != null)
+                {
+                    syncStatus.Message = $"Error during estimation operation: {ex.Message}";
+                }
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogErrorEstimatingItemArtwork(ex);
+                
+                if (syncStatus != null)
+                {
+                    syncStatus.Message = $"Error with invalid arguments: {ex.Message}";
+                }
+            }
+            
+            return estimate;
         }
         
         /// <summary>
@@ -846,9 +1552,17 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         break;
                 }
             }
-            catch (Exception ex)
+            catch (ArgumentException ex)
             {
-                _logger.LogWarning(ex, "Error determining MIME type from URL: {Url}", url);
+                _logger.LogErrorDeterminingMimeType(url, ex);
+            }
+            catch (FormatException ex)
+            {
+                _logger.LogErrorDeterminingMimeType(url, ex);
+            }
+            catch (PathTooLongException ex)
+            {
+                _logger.LogErrorDeterminingMimeType(url, ex);
             }
             
             return mimeType;
@@ -942,7 +1656,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 {
                     try
                     {
-                        _logger.LogInformation("Starting background sync operation with ID: {SyncId}", syncStatus.Id);
+                        _logger.LogStartingBackgroundSync(syncStatus.Id);
                         var result = await SyncFromPlexAsync(false, syncStatus).ConfigureAwait(false);
                         syncStatus.Result = result;
                         syncStatus.IsComplete = true;
@@ -950,12 +1664,36 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         syncStatus.Message = "Sync completed successfully.";
                         syncStatus.EndTime = DateTime.UtcNow;
                     }
-                    catch (Exception ex)
+                    catch (HttpRequestException ex)
                     {
-                        _logger.LogError(ex, "Error in background sync operation");
+                        _logger.LogErrorBackgroundSync(ex);
                         syncStatus.IsComplete = true;
                         syncStatus.Progress = 100;
-                        syncStatus.Message = $"Error: {ex.Message}";
+                        syncStatus.Message = $"Error connecting to Plex: {ex.Message}";
+                        syncStatus.EndTime = DateTime.UtcNow;
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        _logger.LogErrorBackgroundSync(ex);
+                        syncStatus.IsComplete = true;
+                        syncStatus.Progress = 100;
+                        syncStatus.Message = $"Operation error: {ex.Message}";
+                        syncStatus.EndTime = DateTime.UtcNow;
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        _logger.LogErrorBackgroundSync(ex);
+                        syncStatus.IsComplete = true;
+                        syncStatus.Progress = 100;
+                        syncStatus.Message = $"Parameter error: {ex.Message}";
+                        syncStatus.EndTime = DateTime.UtcNow;
+                    }
+                    catch (IOException ex)
+                    {
+                        _logger.LogErrorBackgroundSync(ex);
+                        syncStatus.IsComplete = true;
+                        syncStatus.Progress = 100;
+                        syncStatus.Message = $"I/O error: {ex.Message}";
                         syncStatus.EndTime = DateTime.UtcNow;
                     }
                 });
@@ -968,10 +1706,25 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     message = "Sync operation started successfully."
                 });
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
             {
-                _logger.LogError(ex, "Error starting sync from Plex");
-                return StatusCode(500, new { Error = ex.Message });
+                _logger.LogErrorStartingSync(ex);
+                return StatusCode(500, new { Error = $"Connection error: {ex.Message}" });
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogErrorStartingSync(ex);
+                return StatusCode(500, new { Error = $"Operation error: {ex.Message}" });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogErrorStartingSync(ex);
+                return StatusCode(500, new { Error = $"Parameter error: {ex.Message}" });
+            }
+            catch (NullReferenceException ex)
+            {
+                _logger.LogErrorStartingSync(ex);
+                return StatusCode(500, new { Error = $"Null reference error: {ex.Message}" });
             }
         }
 
@@ -1011,6 +1764,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                             {
                                 collectionsAdded = syncStatus.Result.CollectionsAdded,
                                 collectionsUpdated = syncStatus.Result.CollectionsUpdated,
+                                itemArtworkUpdated = syncStatus.Result.ItemArtworkUpdated,
                                 details = syncStatus.Result.Details
                             };
                             
@@ -1035,10 +1789,25 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     return NotFound(new { success = false, message = "Sync operation not found" });
                 }
             }
-            catch (Exception ex)
+            catch (KeyNotFoundException ex)
             {
-                _logger.LogError(ex, "Error getting sync status");
-                return StatusCode(500, new { Error = ex.Message });
+                _logger.LogErrorGettingSyncStatus(ex);
+                return StatusCode(500, new { Error = $"Sync operation not found: {ex.Message}" });
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogErrorGettingSyncStatus(ex);
+                return StatusCode(500, new { Error = $"Operation error: {ex.Message}" });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogErrorGettingSyncStatus(ex);
+                return StatusCode(500, new { Error = $"Parameter error: {ex.Message}" });
+            }
+            catch (NullReferenceException ex)
+            {
+                _logger.LogErrorGettingSyncStatus(ex);
+                return StatusCode(500, new { Error = $"Null reference error: {ex.Message}" });
             }
         }
 
@@ -1054,6 +1823,17 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             [Required] Uri url,
             [Required] string token)
         {
+            // Validate parameters
+            if (url == null)
+            {
+                throw new ArgumentNullException(nameof(url));
+            }
+            
+            if (string.IsNullOrEmpty(token))
+            {
+                throw new ArgumentNullException(nameof(token));
+            }
+            
             try
             {
                 var config = Plugin.Instance!.Configuration;
@@ -1078,12 +1858,36 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     libraries = libraries 
                 });
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
             {
-                _logger.LogError(ex, "Error testing Plex connection");
+                _logger.LogErrorTestingPlexConnection(ex);
                 return Ok(new { 
                     success = false, 
                     error = $"Error connecting to Plex: {ex.Message}" 
+                });
+            }
+            catch (UriFormatException ex)
+            {
+                _logger.LogErrorTestingPlexConnection(ex);
+                return Ok(new { 
+                    success = false, 
+                    error = $"Invalid Plex URL: {ex.Message}" 
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogErrorTestingPlexConnection(ex);
+                return Ok(new { 
+                    success = false, 
+                    error = $"Invalid operation when connecting to Plex: {ex.Message}" 
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogErrorTestingPlexConnection(ex);
+                return Ok(new { 
+                    success = false, 
+                    error = $"Invalid argument when connecting to Plex: {ex.Message}" 
                 });
             }
         }
@@ -1130,7 +1934,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 {
                     try
                     {
-                        _logger.LogInformation("Starting background dry run with ID: {SyncId}", syncStatus.Id);
+                        _logger.LogStartingBackgroundDryRun(syncStatus.Id);
                         var result = await SyncFromPlexAsync(true, syncStatus).ConfigureAwait(false);
                         syncStatus.Result = result;
                         syncStatus.IsComplete = true;
@@ -1144,18 +1948,39 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                             int totalChanges = result.Details.CollectionsToAdd.Count + 
                                              result.Details.CollectionsToUpdate.Count;
                                              
-                            _logger.LogInformation("Dry run completed with {TotalChanges} total changes: {AddCount} collections to add, {UpdateCount} to update",
-                                totalChanges,
-                                result.Details.CollectionsToAdd.Count,
-                                result.Details.CollectionsToUpdate.Count);
+                            _logger.LogDryRunCompleted(totalChanges, result.Details.CollectionsToAdd.Count, result.Details.CollectionsToUpdate.Count);
                         }
                     }
-                    catch (Exception ex)
+                    catch (HttpRequestException ex)
                     {
-                        _logger.LogError(ex, "Error in background dry run operation");
+                        _logger.LogErrorBackgroundDryRun(ex);
                         syncStatus.IsComplete = true;
                         syncStatus.Progress = 100;
-                        syncStatus.Message = $"Error: {ex.Message}";
+                        syncStatus.Message = $"Connection error: {ex.Message}";
+                        syncStatus.EndTime = DateTime.UtcNow;
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        _logger.LogErrorBackgroundDryRun(ex);
+                        syncStatus.IsComplete = true;
+                        syncStatus.Progress = 100;
+                        syncStatus.Message = $"Operation error: {ex.Message}";
+                        syncStatus.EndTime = DateTime.UtcNow;
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        _logger.LogErrorBackgroundDryRun(ex);
+                        syncStatus.IsComplete = true;
+                        syncStatus.Progress = 100;
+                        syncStatus.Message = $"Parameter error: {ex.Message}";
+                        syncStatus.EndTime = DateTime.UtcNow;
+                    }
+                    catch (IOException ex)
+                    {
+                        _logger.LogErrorBackgroundDryRun(ex);
+                        syncStatus.IsComplete = true;
+                        syncStatus.Progress = 100;
+                        syncStatus.Message = $"I/O error: {ex.Message}";
                         syncStatus.EndTime = DateTime.UtcNow;
                     }
                 });
@@ -1168,10 +1993,25 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     message = "Dry run started successfully."
                 });
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
             {
-                _logger.LogError(ex, "Error starting dry run");
-                return StatusCode(500, new { Error = ex.Message });
+                _logger.LogErrorStartingDryRun(ex);
+                return StatusCode(500, new { Error = $"Connection error: {ex.Message}" });
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogErrorStartingDryRun(ex);
+                return StatusCode(500, new { Error = $"Operation error: {ex.Message}" });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogErrorStartingDryRun(ex);
+                return StatusCode(500, new { Error = $"Parameter error: {ex.Message}" });
+            }
+            catch (NullReferenceException ex)
+            {
+                _logger.LogErrorStartingDryRun(ex);
+                return StatusCode(500, new { Error = $"Null reference error: {ex.Message}" });
             }
         }
         
@@ -1184,9 +2024,15 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         [Authorize(Policy = "RequiresElevation")]
         public ActionResult UpdateSelectedLibraries([FromBody] List<string> libraryIds)
         {
+            // Validate parameter
+            if (libraryIds == null)
+            {
+                throw new ArgumentNullException(nameof(libraryIds));
+            }
+            
             try
             {
-                _logger.LogDebug($"Received library IDs: {string.Join(", ", libraryIds)}");
+                _logger.LogReceivedLibraryIDs(string.Join(", ", libraryIds));
                 
                 var config = Plugin.Instance!.Configuration;
                 config.SelectedLibraries = libraryIds;
@@ -1197,12 +2043,36 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     message = "Selected libraries updated successfully" 
                 });
             }
-            catch (Exception ex)
+            catch (InvalidOperationException ex)
             {
-                _logger.LogError(ex, "Error updating selected libraries");
+                _logger.LogErrorUpdatingLibraries(ex);
                 return Ok(new { 
                     success = false, 
-                    error = $"Error updating selected libraries: {ex.Message}" 
+                    error = $"Operation error: {ex.Message}" 
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogErrorUpdatingLibraries(ex);
+                return Ok(new { 
+                    success = false, 
+                    error = $"Invalid argument: {ex.Message}" 
+                });
+            }
+            catch (NullReferenceException ex)
+            {
+                _logger.LogErrorUpdatingLibraries(ex);
+                return Ok(new { 
+                    success = false, 
+                    error = $"Null reference error: {ex.Message}" 
+                });
+            }
+            catch (IOException ex)
+            {
+                _logger.LogErrorUpdatingLibraries(ex);
+                return Ok(new { 
+                    success = false, 
+                    error = $"I/O error: {ex.Message}" 
                 });
             }
         }
