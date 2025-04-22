@@ -108,6 +108,16 @@
                             When enabled, collection posters and backdrops will be synced from Plex to Jellyfin.
                         </div>
 
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" id="SyncItemArtwork" />
+                                <span>Sync Movie and TV Show Artwork</span>
+                            </label>
+                        </div>
+                        <div class="fieldDescription" style="margin-left: 25px; font-size: 90%; margin-bottom: 15px;">
+                            When enabled, poster images and backdrops for individual movies and TV shows will be synced from Plex to Jellyfin.
+                        </div>
+
                     </div>
 
                     <div class="verticalSection">
@@ -722,6 +732,11 @@
                                   (isDryRun ? 'would update' : 'updated') + ' ' +
                                   status.result.collectionsUpdated + ' collections. ';
                     }
+                    
+                    if (status.result.itemArtworkUpdated > 0) {
+                        detailedMessage += (isDryRun ? 'Would update' : 'Updated') + ' artwork for ' +
+                                  status.result.itemArtworkUpdated + ' items. ';
+                    }
 
                     // Update progress message with details
                     if (syncProgressMessage) {
@@ -771,6 +786,7 @@
                     // SyncPlaylists setting removed
                     config.DeleteBeforeSync = document.querySelector('#DeleteBeforeSync').checked;
                     config.SyncArtwork = document.querySelector('#SyncArtwork').checked;
+                    config.SyncItemArtwork = document.querySelector('#SyncItemArtwork').checked;
                     config.EnableScheduledSync = document.querySelector('#EnableScheduledSync').checked;
                     config.EnableDebugMode = document.querySelector('#EnableDebugMode').checked;
 
@@ -812,6 +828,7 @@
                     // SyncPlaylists setting removed
                     document.querySelector('#DeleteBeforeSync').checked = config.DeleteBeforeSync;
                     document.querySelector('#SyncArtwork').checked = config.SyncArtwork;
+                    document.querySelector('#SyncItemArtwork').checked = config.SyncItemArtwork || false;
                     document.querySelector('#EnableScheduledSync').checked = config.EnableScheduledSync;
                     document.querySelector('#SyncIntervalHours').value = config.SyncIntervalHours || 24;
                     document.querySelector('#EnableDebugMode').checked = config.EnableDebugMode || false;
@@ -862,13 +879,20 @@
                 var body = '<body>\n    <div class="header">\n        <h1>Plexyfin Dry Run Report</h1>\n        <p>Generated on ' + timestamp + '</p>\n    </div>\n    \n    <div class="summary">\n        <p>The following changes would be made if a sync was performed.</p>\n    </div>';
 
                 // Statistics section
-                var stats = '\n    <div class="stats">\n        <div class="stat-box">\n            <div class="stat-number">' + (addCount || 0) + '</div>\n            <div class="stat-label">Collections to Add</div>\n        </div>\n        <div class="stat-box">\n            <div class="stat-number">' + (updateCount || 0) + '</div>\n            <div class="stat-label">Collections to Update</div>\n        </div>\n        <div class="stat-box">\n            <div class="stat-number">' + (totalChanges || 0) + '</div>\n            <div class="stat-label">Total Changes</div>\n        </div>\n    </div>';
+                var artworkCount = status.result.itemArtworkUpdated || 0;
+                var stats = '\n    <div class="stats">\n        <div class="stat-box">\n            <div class="stat-number">' + (addCount || 0) + '</div>\n            <div class="stat-label">Collections to Add</div>\n        </div>\n        <div class="stat-box">\n            <div class="stat-number">' + (updateCount || 0) + '</div>\n            <div class="stat-label">Collections to Update</div>\n        </div>\n';
+                
+                if (artworkCount > 0) {
+                    stats += '        <div class="stat-box">\n            <div class="stat-number">' + artworkCount + '</div>\n            <div class="stat-label">Items with Artwork Updates</div>\n        </div>\n';
+                }
+                
+                stats += '        <div class="stat-box">\n            <div class="stat-number">' + (totalChanges + artworkCount || 0) + '</div>\n            <div class="stat-label">Total Changes</div>\n        </div>\n    </div>';
 
                 // Build the body content
                 var content = "";
 
                 // If there are no changes, show a message
-                if (totalChanges === 0) {
+                if (totalChanges === 0 && artworkCount === 0) {
                     content += '\n    <div class="no-changes">\n        <h2>No Changes Would Be Made</h2>\n        <p>Your Jellyfin collections and watch states are already in sync with Plex.</p>\n    </div>';
                 } else {
                     // Add Collections to Add section
@@ -925,6 +949,13 @@
                         }
 
                         content += '\n        </ul>\n    </div>';
+                    }
+                    
+                    // Item Artwork section
+                    if (artworkCount > 0) {
+                        content += '\n    <div class="section">\n        <h2>Artwork That Would Be Updated (' + artworkCount + ' items)</h2>';
+                        content += '\n        <p>Artwork for ' + artworkCount + ' items would be updated from Plex. This includes poster images and backdrop art.</p>';
+                        content += '\n    </div>';
                     }
 
                     // Watch States section removed

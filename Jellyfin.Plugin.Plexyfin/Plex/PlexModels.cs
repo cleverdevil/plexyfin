@@ -1,3 +1,4 @@
+using System;
 using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.Plexyfin.Plex
@@ -54,5 +55,17 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
         /// </summary>
         [JsonPropertyName("type")]
         public string Type { get; set; } = string.Empty;
+        
+        /// <summary>
+        /// Gets or sets the thumbnail URL (poster).
+        /// </summary>
+        [JsonPropertyName("thumbUrl")]
+        public Uri? ThumbUrl { get; set; }
+        
+        /// <summary>
+        /// Gets or sets the art URL (backdrop).
+        /// </summary>
+        [JsonPropertyName("artUrl")]
+        public Uri? ArtUrl { get; set; }
     }
 }

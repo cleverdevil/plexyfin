@@ -78,7 +78,7 @@ dotnet build
 ### Troubleshooting
 
 If you experience build errors:
-- Make sure you're using the latest .NET 6.0 SDK
+- Make sure you're using the latest .NET SDK
 - Use the provided build script which disables treating warnings as errors
 - Check that you have the required dependencies installed
 
