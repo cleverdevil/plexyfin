@@ -1,7 +1,7 @@
 {
   "name": "Plexyfin",
   "guid": "b9f0c474-e9a8-4292-ae41-eb3c1542f4cd",
-  "version": "0.4.0.0",
+  "version": "0.5.0.0",
   "overview": "Plugin for Jellyfin that syncs collections and artwork from Plex to Jellyfin",
   "description": "Syncs collections, artwork, and their metadata from your Plex Media Server to Jellyfin.",
   "owner": "plexyfin",
