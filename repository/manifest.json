@@ -1,41 +1,36 @@
-{
-  "name": "Plexyfin Plugin Repository",
-  "description": "Repository for the Plexyfin plugin that syncs collections from Plex to Jellyfin",
-  "url": "https://cleverdevil.github.io/plexyfin",
-  "plugins": [
-    {
-      "guid": "b9f0c474-e9a8-4292-ae41-eb3c1542f4cd",
-      "name": "Plexyfin",
-      "description": "Sync collections and artwork from Plex to Jellyfin",
-      "overview": "A plugin that synchronizes collections and artwork from your Plex Media Server to Jellyfin",
-      "owner": "cleverdevil",
-      "category": "Metadata",
-      "versions": [
-        {
-          "version": "0.4.0.0",
-          "changelog": "Removed watch state synchronization, improved collection sync, dry run capabilities.",
-          "targetAbi": "10.9.9.0",
-          "sourceUrl": "https://cleverdevil.github.io/plexyfin/versions/plexyfin/0.4.0.0.json",
-          "checksum": "f720f2f0fdf27cedad70ff5d0baaaea9df7cdc344c668ec703e2019e218fd73d02ea1320dc3296fa2bdc172f3af7663eae72503d12484bb7025ec5888436fec7",
-          "timestamp": "2025-04-21T07:38:16Z"
-        },
-        {
-          "version": "0.3.0.0",
-          "changelog": "Improved collection sync, functional watch state sync, dry run capabilities.",
-          "targetAbi": "10.9.9.0",
-          "sourceUrl": "https://cleverdevil.github.io/plexyfin/versions/plexyfin/0.3.0.0.json",
-          "checksum": "a40a330f9b217bf5aadc97615360db68bc3308901d4b42415a4d8abf1a2ce8756d17775fc3accbd5c703d01e7bd7bb46b48456038ecf60370ed0a81498c2560a",
-          "timestamp": "2025-04-03T22:45:00Z"
-        },
-        {
-          "version": "0.2.0.0",
-          "changelog": "Initial release",
-          "targetAbi": "10.8.0.0",
-          "sourceUrl": "https://cleverdevil.github.io/plexyfin/versions/plexyfin/0.2.0.0.json",
-          "checksum": "",
-          "timestamp": "2025-03-27T22:21:50Z"
-        }
-      ]
-    }
-  ]
-}
+[
+  {
+    "guid": "b9f0c474-e9a8-4292-ae41-eb3c1542f4cd",
+    "name": "Plexyfin",
+    "description": "Sync collections and artwork from Plex to Jellyfin",
+    "overview": "A plugin that synchronizes collections and artwork from your Plex Media Server to Jellyfin",
+    "owner": "cleverdevil",
+    "category": "Metadata",
+    "versions": [
+      {
+        "version": "0.4.0.0",
+        "changelog": "Removed watch state synchronization, improved collection sync, dry run capabilities.",
+        "targetAbi": "10.9.9.0",
+        "sourceUrl": "https://cleverdevil.github.io/plexyfin/versions/plexyfin/0.4.0.0.json",
+        "checksum": "f720f2f0fdf27cedad70ff5d0baaaea9df7cdc344c668ec703e2019e218fd73d02ea1320dc3296fa2bdc172f3af7663eae72503d12484bb7025ec5888436fec7",
+        "timestamp": "2025-04-21T07:38:16Z"
+      },
+      {
+        "version": "0.3.0.0",
+        "changelog": "Improved collection sync, functional watch state sync, dry run capabilities.",
+        "targetAbi": "10.9.9.0",
+        "sourceUrl": "https://cleverdevil.github.io/plexyfin/versions/plexyfin/0.3.0.0.json",
+        "checksum": "a40a330f9b217bf5aadc97615360db68bc3308901d4b42415a4d8abf1a2ce8756d17775fc3accbd5c703d01e7bd7bb46b48456038ecf60370ed0a81498c2560a",
+        "timestamp": "2025-04-03T22:45:00Z"
+      },
+      {
+        "version": "0.2.0.0",
+        "changelog": "Initial release",
+        "targetAbi": "10.8.0.0",
+        "sourceUrl": "https://cleverdevil.github.io/plexyfin/versions/plexyfin/0.2.0.0.json",
+        "checksum": "",
+        "timestamp": "2025-03-27T22:21:50Z"
+      }
+    ]
+  }
+]
