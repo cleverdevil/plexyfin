@@ -80,11 +80,17 @@ namespace Jellyfin.Plugin.Plexyfin
         /// <inheritdoc />
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
+            // Validate progress parameter
+            if (progress == null)
+            {
+                throw new ArgumentNullException(nameof(progress));
+            }
+            
             // Check if sync is enabled in config
             var config = Plugin.Instance.Configuration;
             if (!config.SyncCollections)
             {
-                _logger.LogInformation("Scheduled sync skipped because collections sync is not enabled");
+                _logger.LogSkippedNotEnabled();
                 progress.Report(100);
                 return;
             }
@@ -92,18 +98,18 @@ namespace Jellyfin.Plugin.Plexyfin
             // Validate Plex configuration
             if (config.PlexServerUrl == null || string.IsNullOrEmpty(config.PlexApiToken))
             {
-                _logger.LogWarning("Scheduled sync skipped because Plex server URL or API token are not configured");
+                _logger.LogMissingPlexConfig();
                 progress.Report(100);
                 return;
             }
 
             try
             {
-                _logger.LogInformation("Starting scheduled sync from Plex");
+                _logger.LogStartingScheduledSync();
                 progress.Report(10);
 
                 // We have these services directly in the scheduled task, let's use them
-                _logger.LogInformation("Creating controller with provider manager and file system dependencies");
+                _logger.LogCreatingController();
                 
                 // Create a controller instance to reuse the sync logic
                 var controllerLogger = new PlexyfinControllerLogger(_logger);
@@ -118,12 +124,12 @@ namespace Jellyfin.Plugin.Plexyfin
                 // Call the sync method
                 await controller.SyncFromPlexAsync().ConfigureAwait(false);
                 
-                _logger.LogInformation("Scheduled sync completed successfully");
+                _logger.LogSyncCompleted();
                 progress.Report(100);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during scheduled sync from Plex");
+                _logger.LogSyncError(ex);
                 throw;
             }
         }
@@ -177,7 +183,7 @@ namespace Jellyfin.Plugin.Plexyfin
             : base(applicationPaths, xmlSerializer)
         {
             _logger = loggerFactory.CreateLogger<Plugin>();
-            _logger.LogInformation("Plexyfin plugin initializing");
+            _logger.LogPluginInitializing("Plexyfin");
             Instance = this;
         }
 
@@ -207,7 +213,7 @@ namespace Jellyfin.Plugin.Plexyfin
         /// <param name="serviceCollection">The service collection.</param>
         public void ApplyToContainer(IServiceCollection serviceCollection)
         {
-            _logger.LogInformation("Registering Plexyfin components with Jellyfin DI system");
+            _logger.LogRegisteringComponents("Plexyfin");
             
             try
             {
@@ -218,11 +224,15 @@ namespace Jellyfin.Plugin.Plexyfin
                 
                 // IFileSystem should already be registered by Jellyfin's core services
                 
-                _logger.LogInformation("Successfully registered Plexyfin components");
+                _logger.LogSuccessfullyRegistered("Plexyfin");
             }
-            catch (Exception ex)
+            catch (InvalidOperationException ex)
             {
-                _logger.LogError(ex, "Error registering Plexyfin components");
+                _logger.LogErrorRegistering(ex);
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogErrorRegistering(ex);
             }
         }
 
