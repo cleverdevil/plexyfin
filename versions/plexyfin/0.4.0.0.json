@@ -1,8 +1,8 @@
 {
   "name": "Plexyfin",
   "version": "0.4.0.0",
-  "targetAbi": "10.8.0.0",
-  "changelog": "See GitHub release for details",
+  "targetAbi": "10.9.9.0",
+  "changelog": "See GitHub releases for changelog",
   "description": "Sync collections and artwork from Plex to Jellyfin",
   "overview": "A plugin that synchronizes collections and artwork from your Plex Media Server to Jellyfin",
   "owner": "cleverdevil",
@@ -11,7 +11,7 @@
     {
       "filename": "Jellyfin.Plugin.Plexyfin.dll",
       "url": "https://github.com/cleverdevil/plexyfin/releases/download/v0.4.0.0/Jellyfin.Plugin.Plexyfin.dll",
-      "checksum": "d388a167e0c06d153328bea694dcb08be152abd4076d847194e8ef9bedaff6376f76f467ebbfe983addb9697c3d5fff8a68bcdfe094198ea1efe40c7f47a98d2"
+      "checksum": "f720f2f0fdf27cedad70ff5d0baaaea9df7cdc344c668ec703e2019e218fd73d02ea1320dc3296fa2bdc172f3af7663eae72503d12484bb7025ec5888436fec7"
     }
   ]
 }
