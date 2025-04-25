@@ -40,12 +40,12 @@ Current version: **0.5.0.0**
    This will:
    - Build the plugin
    - Create a ZIP file with the plugin DLL and meta.json
-   - Calculate and display the SHA256 checksum of the ZIP
+   - Calculate and display the MD5 checksum of the ZIP
 
 5. Update the repository manifest:
    - Edit `metadata/stable/manifest.json` with the new version info
    - Update the sourceUrl to point to the ZIP file that will be uploaded in the release
-   - Update the checksum with the SHA256 hash of the ZIP shown by the build script
+   - Update the checksum with the MD5 hash of the ZIP shown by the build script
    - Update the timestamp and changelog
    - Commit and push these changes:
      ```bash

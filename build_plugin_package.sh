@@ -31,17 +31,17 @@ cd "$PACKAGE_DIR"
 zip -r "../$ZIP_NAME" ./*
 cd ..
 
-# Calculate SHA256 checksum
+# Calculate MD5 checksum
 if [ "$(uname)" == "Darwin" ]; then
     # macOS
-    CHECKSUM=$(shasum -a 256 "$ZIP_NAME" | awk '{print $1}')
+    CHECKSUM=$(md5 -q "$ZIP_NAME")
 else
     # Linux
-    CHECKSUM=$(sha256sum "$ZIP_NAME" | awk '{print $1}')
+    CHECKSUM=$(md5sum "$ZIP_NAME" | awk '{print $1}')
 fi
 
 echo "Package created: $ZIP_NAME"
-echo "SHA256 checksum: $CHECKSUM"
+echo "MD5 checksum: $CHECKSUM"
 
 # Cleanup
 rm -rf "$PACKAGE_DIR"
