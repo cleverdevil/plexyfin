@@ -1,6 +1,6 @@
 # Release Process for Plexyfin
 
-This document outlines the process for creating new releases of the Plexyfin plugin.
+This document outlines the simplified manual process for creating new releases of the Plexyfin plugin.
 
 ## Version Numbering
 
@@ -15,37 +15,53 @@ Current version: **0.5.0.0**
 
 ## Creating a New Release
 
-1. Update version number in:
-   - `Jellyfin.Plugin.Plexyfin.csproj` (AssemblyVersion and FileVersion elements)
-   - `Jellyfin.Plugin.Plexyfin/meta.json` (version field)
+1. Update version numbers in the following files:
+   - `Jellyfin.Plugin.Plexyfin.csproj`: Update AssemblyVersion and FileVersion elements
+   - `Jellyfin.Plugin.Plexyfin/meta.json`: Update version field
    - Any other version references in the code
 
-2. Create and push a tag:
+2. Commit and push these changes:
    ```bash
-   git tag -a v0.5.0.0 -m "Release v0.5.0.0"
-   git push origin v0.5.0.0
+   git add Jellyfin.Plugin.Plexyfin.csproj Jellyfin.Plugin.Plexyfin/meta.json
+   git commit -m "Bump version to X.Y.Z.0"
+   git push
    ```
 
-3. Build the plugin package:
+3. Create and push a tag:
+   ```bash
+   git tag -a vX.Y.Z.0 -m "Release vX.Y.Z.0"
+   git push origin vX.Y.Z.0
+   ```
+
+4. Build the plugin package:
    ```bash
    ./build_plugin_package.sh
    ```
-   This will create a ZIP file with the plugin DLL and meta.json and calculate its checksum.
-
-4. Create a new release on GitHub:
-   - Go to https://github.com/cleverdevil/plexyfin/releases
-   - Click "Draft a new release"
-   - Select the tag you just created
-   - Title: "Plexyfin v0.5.0.0"
-   - Add release notes describing changes
-   - Upload the ZIP package (`plexyfin_0.5.0.0.zip`) as a release asset
-   - Publish the release
+   This will:
+   - Build the plugin
+   - Create a ZIP file with the plugin DLL and meta.json
+   - Calculate and display the SHA256 checksum of the ZIP
 
 5. Update the repository manifest:
-   - Update `metadata/stable/manifest.json` with the new version info
-   - Update the checksum with the SHA256 hash of the ZIP (provided by build_plugin_package.sh)
+   - Edit `metadata/stable/manifest.json` with the new version info
+   - Update the sourceUrl to point to the ZIP file that will be uploaded in the release
+   - Update the checksum with the SHA256 hash of the ZIP shown by the build script
    - Update the timestamp and changelog
-   - Commit and push the changes to main
+   - Commit and push these changes:
+     ```bash
+     git add metadata/stable/manifest.json
+     git commit -m "Update manifest for version X.Y.Z.0"
+     git push
+     ```
+
+6. Create a new release on GitHub:
+   - Go to https://github.com/cleverdevil/plexyfin/releases
+   - Click "Draft a new release"
+   - Select the tag you created earlier
+   - Title: "Plexyfin vX.Y.Z.0"
+   - Add release notes describing changes
+   - Upload the ZIP package as a release asset
+   - Publish the release
 
 ## Testing a Release
 
@@ -62,7 +78,7 @@ After publishing a release:
 
 If the release process fails:
 
-1. Make sure the DLL is properly uploaded to the GitHub release
+1. Make sure the ZIP file is properly uploaded to the GitHub release
 2. Verify that the version numbers and checksums are consistent
-3. Check the manifest.json format using a JSON validator
+3. Check that the sourceUrl in the manifest correctly points to the ZIP file on GitHub
 4. Test the repository URL in Jellyfin directly
