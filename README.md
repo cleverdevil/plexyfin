@@ -71,7 +71,7 @@ dotnet build
 ### Installation
 
 1. Build the plugin
-2. Copy the resulting DLL from `Jellyfin.Plugin.Plexyfin/bin/Debug/net6.0/Jellyfin.Plugin.Plexyfin.dll` to your Jellyfin plugins directory
+2. Copy the resulting DLL from `Jellyfin.Plugin.Plexyfin/bin/Debug/net8.0/Jellyfin.Plugin.Plexyfin.dll` to your Jellyfin plugins directory
 3. Restart Jellyfin
 4. Go to the Jellyfin dashboard and enable the plugin
 
