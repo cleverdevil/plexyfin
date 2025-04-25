@@ -26,18 +26,24 @@ Current version: **0.5.0.0**
    git push origin v0.5.0.0
    ```
 
-3. Create a new release on GitHub:
+3. Build the plugin package:
+   ```bash
+   ./build_plugin_package.sh
+   ```
+   This will create a ZIP file with the plugin DLL and meta.json and calculate its checksum.
+
+4. Create a new release on GitHub:
    - Go to https://github.com/cleverdevil/plexyfin/releases
    - Click "Draft a new release"
    - Select the tag you just created
    - Title: "Plexyfin v0.5.0.0"
    - Add release notes describing changes
+   - Upload the ZIP package (`plexyfin_0.5.0.0.zip`) as a release asset
    - Publish the release
-   - Upload the built DLL as a release asset
 
-4. Update the repository manifest:
+5. Update the repository manifest:
    - Update `metadata/stable/manifest.json` with the new version info
-   - Update the checksum with the SHA512 hash of the DLL
+   - Update the checksum with the SHA256 hash of the ZIP (provided by build_plugin_package.sh)
    - Update the timestamp and changelog
    - Commit and push the changes to main
 
