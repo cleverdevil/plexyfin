@@ -31,10 +31,16 @@ jobs:
         uses: actions/checkout@v4
       - name: Setup Pages
         uses: actions/configure-pages@v4
+      - name: Prepare artifact
+        run: |
+          # Create _site directory at root (GitHub Pages default publish directory)
+          mkdir -p _site
+          # Copy all files from repository/ to _site/ (at the root level)
+          cp -R repository/* _site/
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./repository
+          path: _site
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
