@@ -16,7 +16,7 @@ A plugin for Jellyfin that syncs collections and artwork from your Plex Media Se
 
 1. In Jellyfin, go to Dashboard → Plugins → Repositories
 2. Add a new repository with the following URL:
-   `https://cleverdevil.github.io/plexyfin/manifest.json`
+   `https://raw.githubusercontent.com/cleverdevil/plexyfin/main/metadata/stable/manifest.json`
 3. Go to the Catalog tab
 4. Find Plexyfin in the list and click Install
 5. Restart Jellyfin when prompted
