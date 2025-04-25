@@ -12,7 +12,7 @@
         "changelog": "- Removed watch state synchronization for a more focused plugin\n- Improved collection sync with better progress tracking\n- Added dry run capability for testing synchronization\n- Improved UI progress display with more informative updates",
         "targetAbi": "10.9.9.0",
         "sourceUrl": "https://github.com/cleverdevil/plexyfin/releases/download/v0.5.0.0/plexyfin_0.5.0.0.zip",
-        "checksum": "7a53a7c8dc5bb5c6fed6d7d5eacb7d266d0d360b7a5da6d08f73825f079d6d62",
+        "checksum": "23188d1355b45ee52dac2e8f8ddf8741",
         "timestamp": "2025-04-25T00:00:00Z"
       }
     ]
