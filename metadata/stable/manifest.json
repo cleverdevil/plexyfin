@@ -4,6 +4,7 @@
     "name": "Plexyfin",
     "description": "Syncs collections, artwork, and their metadata from your Plex Media Server to Jellyfin.",
     "overview": "Plugin for Jellyfin that syncs collections and artwork from Plex to Jellyfin",
+    "imageUrl": "https://raw.githubusercontent.com/cleverdevil/plexyfin/main/metadata/stable/banner.jpg",
     "owner": "cleverdevil",
     "category": "Metadata",
     "versions": [
