@@ -31,7 +31,8 @@ cp "$OUTPUT_DIR/tmp/$PLUGIN_NAME.dll" "$OUTPUT_DIR/${PLUGIN_ID}_${VERSION}/"
 echo "Creating meta.json..."
 cat > "$OUTPUT_DIR/${PLUGIN_ID}_${VERSION}/meta.json" << EOF
 {
-  "id": "b9f0c474-e9a8-4292-ae41-eb3c1542f4cd",
+  "id": "b9f0c474-e9a8-4292-ae41-eb3c1542f4cd", 
+  "guid": "b9f0c474-e9a8-4292-ae41-eb3c1542f4cd",
   "name": "${PLUGIN_ID}",
   "description": "Syncs collections, artwork, and their metadata from your Plex Media Server to Jellyfin",
   "overview": "Plugin for Jellyfin that syncs collections and artwork from Plex to Jellyfin",
