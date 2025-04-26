@@ -1,3 +1,7 @@
+<p align="center">
+<img alt="Plugin Banner" src="https://raw.githubusercontent.com/cleverdevil/plexyfin/master/metadata/stable/banner.jpg"/>
+<br/>
+
 # Plexyfin Plugin for Jellyfin
 
 A plugin for Jellyfin that syncs collections and artwork from your Plex Media Server to Jellyfin.
