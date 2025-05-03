@@ -85,17 +85,12 @@
 
                         <!-- Playlist sync feature removed -->
 
-                        <div class="checkboxContainer">
-                            <label>
-                                <input type="checkbox" id="DeleteBeforeSync" />
-                                <span>Delete Existing Collections Before Syncing</span>
-                            </label>
-                        </div>
-                        <div class="fieldDescription" style="margin-left: 25px; font-size: 90%; margin-bottom: 15px;">
-                            When enabled, all existing collections in Jellyfin will be deleted before syncing from Plex.
-                            This ensures there are no duplicate or stale collections from previous sync operations.
-                            <b>Note:</b> By default, without this enabled, the plugin will update existing collections
-                            and create any new ones that don't exist.
+                        <div class="fieldDescription" style="font-size: 90%; margin-bottom: 15px;">
+                            <strong>Collection Syncing:</strong> Collections from Plex are now synced more intelligently.
+                            When a collection in Plex matches a collection in Jellyfin by name, the Jellyfin collection
+                            will be deleted and recreated with the exact information from Plex (including membership,
+                            sort title, description, and artwork). This ensures collections are always precisely in sync
+                            with Plex.
                         </div>
 
                         <div class="checkboxContainer">
@@ -795,7 +790,7 @@
                     config.PlexApiToken = document.querySelector('#PlexApiToken').value;
                     config.SyncCollections = document.querySelector('#SyncCollections').checked;
                     // SyncPlaylists setting removed
-                    config.DeleteBeforeSync = document.querySelector('#DeleteBeforeSync').checked;
+                    // DeleteBeforeSync setting removed - collections are now always created precisely
                     config.SyncArtwork = document.querySelector('#SyncArtwork').checked;
                     config.SyncItemArtwork = document.querySelector('#SyncItemArtwork').checked;
                     config.EnableScheduledSync = document.querySelector('#EnableScheduledSync').checked;
@@ -838,7 +833,7 @@
                     document.querySelector('#PlexApiToken').value = config.PlexApiToken || '';
                     document.querySelector('#SyncCollections').checked = config.SyncCollections;
                     // SyncPlaylists setting removed
-                    document.querySelector('#DeleteBeforeSync').checked = config.DeleteBeforeSync;
+                    // DeleteBeforeSync setting removed
                     document.querySelector('#SyncArtwork').checked = config.SyncArtwork;
                     document.querySelector('#SyncItemArtwork').checked = config.SyncItemArtwork || false;
                     document.querySelector('#EnableScheduledSync').checked = config.EnableScheduledSync;

@@ -18,7 +18,6 @@ namespace Jellyfin.Plugin.Plexyfin.Configuration
             // Set default values
             PlexApiToken = string.Empty;
             SyncCollections = true;
-            DeleteBeforeSync = false; // Default to updating collections instead of deleting
             SyncArtwork = true; // Default to syncing artwork
             SyncItemArtwork = false; // Default to not syncing item artwork (opt-in feature)
             EnableScheduledSync = false;
@@ -44,11 +43,6 @@ namespace Jellyfin.Plugin.Plexyfin.Configuration
         /// </summary>
         public bool SyncCollections { get; set; }
 
-        
-        /// <summary>
-        /// Gets or sets a value indicating whether to delete existing collections before syncing.
-        /// </summary>
-        public bool DeleteBeforeSync { get; set; }
         
         /// <summary>
         /// Gets or sets a value indicating whether to sync collection artwork.
