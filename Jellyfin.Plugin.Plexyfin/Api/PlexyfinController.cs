@@ -173,82 +173,8 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     syncStatus.Progress = 40;
                 }
 
-                // Check if collection deletion is enabled
-                if (config.DeleteBeforeSync && !dryRun)
-                {
-                    if (syncStatus != null)
-                    {
-                        syncStatus.Message = "Deleting existing collections...";
-                        syncStatus.Progress = 45;
-                    }
-
-                    _logger.LogInformation("Deleting existing collections before sync");
-
-                    // Get all existing collections from Jellyfin
-                    var existingCollections = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
-                    {
-                        IncludeItemTypes = new[] { BaseItemKind.BoxSet }
-                    });
-
-                    // Track deleted collections
-                    int deletedCount = 0;
-
-                    // Process each collection
-                    foreach (var collection in existingCollections)
-                    {
-                        bool deleted = await DeleteCollectionFromPlexAsync(collection.Name, dryRun, syncStatus).ConfigureAwait(false);
-                        if (deleted)
-                        {
-                            deletedCount++;
-                        }
-                    }
-
-                    // Update the result
-                    result.CollectionsDeleted = deletedCount;
-
-                    if (syncStatus != null)
-                    {
-                        syncStatus.Message = $"Deleted {deletedCount} collections";
-                    }
-                }
-                else if (config.DeleteBeforeSync && dryRun)
-                {
-                    // In dry run mode, report collections that would be deleted
-                    _logger.LogInformation("Dry run: Would delete existing collections before sync");
-
-                    // Get all existing collections from Jellyfin
-                    var existingCollections = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
-                    {
-                        IncludeItemTypes = new[] { BaseItemKind.BoxSet }
-                    });
-
-                    // Track deleted collections and add them to the dry run details
-                    int deletedCount = 0;
-
-                    // Process each collection in dry run mode
-                    foreach (var collection in existingCollections)
-                    {
-                        bool deleted = await DeleteCollectionFromPlexAsync(collection.Name, dryRun, syncStatus).ConfigureAwait(false);
-                        if (deleted && result.Details != null)
-                        {
-                            // Add to the collections to delete list
-                            result.Details.CollectionsToDelete.Add(new SyncCollectionDetail
-                            {
-                                Title = collection.Name
-                            });
-
-                            deletedCount++;
-                        }
-                    }
-
-                    // Update the result
-                    result.CollectionsDeleted = deletedCount;
-
-                    if (syncStatus != null)
-                    {
-                        syncStatus.Message = $"Would delete {deletedCount} collections";
-                    }
-                }
+                // We no longer have the delete-all-collections-before-sync option.
+                // Collections are now deleted and recreated individually during the sync process.
 
                 if (syncStatus != null)
                 {
@@ -503,15 +429,12 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         try
                         {
                             // Check if collection already exists in Jellyfin
-                            // When DeleteBeforeSync is true, we should always create new collections instead of updating
                             var existingCollections = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
                             {
                                 IncludeItemTypes = new[] { BaseItemKind.BoxSet }
                             }).Where(c => c.Name.Equals(collection.Title, StringComparison.OrdinalIgnoreCase));
 
-                            var existingCollection = Plugin.Instance!.Configuration.DeleteBeforeSync
-                                ? null // Force collection recreation when DeleteBeforeSync is enabled
-                                : existingCollections.FirstOrDefault();
+                            var existingCollection = existingCollections.FirstOrDefault();
 
                             // Get collection items from Plex
                             var plexItems = await plexClient.GetCollectionItems(collection.Id).ConfigureAwait(false);
@@ -547,7 +470,42 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                 }
                             }
 
-                            if (existingCollection == null)
+                            // If the collection exists, in dry run mode, record it as an update
+                            // In actual sync mode, delete it and recreate it
+                            if (existingCollection != null)
+                            {
+                                if (dryRun)
+                                {
+                                    // For dry run, record as an update
+                                    _logger.LogUpdateCollection(dryRun ? "Would update" : "Updating", collection.Title);
+
+                                    var syncDetail = new SyncCollectionDetail
+                                    {
+                                        Title = collection.Title,
+                                        SortTitle = collection.SortTitle,
+                                        Summary = collection.Summary,
+                                        Items = matchedItemTitles
+                                    };
+
+                                    collectionsToUpdate.Add(syncDetail);
+                                    updated++;
+
+                                    // Skip the creation path in dry run mode when the collection exists
+                                    continue;
+                                }
+                                else
+                                {
+                                    // In actual sync mode, delete the existing collection
+                                    _logger.LogInformation($"Deleting existing collection '{collection.Title}' for recreation with updated information");
+
+                                    await DeleteCollectionFromPlexAsync(collection.Title, dryRun, syncStatus).ConfigureAwait(false);
+
+                                    // Set existingCollection to null to force creation path
+                                    existingCollection = null;
+                                }
+                            }
+
+                            // New collection creation path - at this point, existingCollection is always null
                             {
                                 // Create new collection
                                 _logger.LogNewCollection(dryRun ? "Would create" : "Creating", collection.Title);
@@ -592,8 +550,6 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                         var options = new MediaBrowser.Controller.Collections.CollectionCreationOptions
                                         {
                                             Name = collection.Title,
-                                            SortName = collection.SortTitle,
-                                            Overview = collection.Summary,
                                             ItemIdList = jellyfinItems.Select(id => id.ToString()).ToList(),
                                             IsLocked = true
                                         };
@@ -614,6 +570,24 @@ namespace Jellyfin.Plugin.Plexyfin.Api
 
                                         if (newCollection != null)
                                         {
+                                            // Update the collection metadata
+                                            newCollection.Overview = collection.Summary;
+
+                                            // Handle sort title specifically
+                                            if (!string.IsNullOrEmpty(collection.SortTitle))
+                                            {
+                                                _logger.LogInformation("Setting sort title '{SortTitle}' for collection '{Title}'", collection.SortTitle, collection.Title);
+                                                newCollection.ForcedSortName = collection.SortTitle;
+                                            }
+
+                                            // Save the metadata changes
+                                            await _libraryManager.UpdateItemAsync(
+                                                newCollection,
+                                                newCollection.GetParent(),
+                                                ItemUpdateType.MetadataEdit,
+                                                CancellationToken.None).ConfigureAwait(false);
+
+                                            // Process artwork if enabled
                                             if (config.SyncArtwork)
                                             {
                                                 await ProcessCollectionArtwork(newCollection, collection).ConfigureAwait(false);
@@ -638,74 +612,6 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                     catch (IOException ex)
                                     {
                                         _logger.LogErrorCreatingCollection(collection.Title, ex);
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                // Update existing collection
-                                _logger.LogUpdateCollection(dryRun ? "Would update" : "Updating", collection.Title);
-
-                                // In dry run mode, just record what would be done
-                                if (dryRun)
-                                {
-                                    var syncDetail = new SyncCollectionDetail
-                                    {
-                                        Title = collection.Title,
-                                        SortTitle = collection.SortTitle,
-                                        Summary = collection.Summary,
-                                        Items = matchedItemTitles
-                                    };
-
-                                    collectionsToUpdate.Add(syncDetail);
-                                }
-                                else
-                                {
-                                    try
-                                    {
-                                        // Update metadata
-                                        existingCollection.Overview = collection.Summary;
-
-                                        // Handle sort title specifically - it's important this gets saved properly
-                                        if (!string.IsNullOrEmpty(collection.SortTitle))
-                                        {
-                                            _logger.LogInformation("Setting sort title '{SortTitle}' for collection '{Title}'", collection.SortTitle, collection.Title);
-                                            existingCollection.SortName = collection.SortTitle;
-                                            _logger.LogInformation("Collection SortName after save: '{SortName}'", existingCollection.SortName);
-                                        }
-
-                                        // Update items in the collection
-                                        await _collectionManager.AddToCollectionAsync(
-                                            existingCollection.Id,
-                                            jellyfinItems.ToArray()).ConfigureAwait(false);
-
-                                        // Save changes again after adding items
-                                        await _libraryManager.UpdateItemAsync(
-                                            existingCollection,
-                                            existingCollection.GetParent(),
-                                            ItemUpdateType.MetadataEdit,
-                                            CancellationToken.None).ConfigureAwait(false);
-
-                                        // Process artwork
-                                        if (config.SyncArtwork)
-                                        {
-                                            await ProcessCollectionArtwork(existingCollection, collection).ConfigureAwait(false);
-                                        }
-
-                                        updated++;
-                                        _logger.LogSuccessfullyUpdatedCollection(collection.Title);
-                                    }
-                                    catch (InvalidOperationException ex)
-                                    {
-                                        _logger.LogErrorUpdatingCollection(collection.Title, ex);
-                                    }
-                                    catch (ArgumentException ex)
-                                    {
-                                        _logger.LogErrorUpdatingCollection(collection.Title, ex);
-                                    }
-                                    catch (IOException ex)
-                                    {
-                                        _logger.LogErrorUpdatingCollection(collection.Title, ex);
                                     }
                                 }
                             }
