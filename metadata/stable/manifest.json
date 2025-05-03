@@ -10,6 +10,14 @@
     "versions": [
       {
         "version": "0.5.1.0",
+        "changelog": "Simplifies collection syncs and adds correct sync for sort titles",
+        "targetAbi": "10.9.9.0",
+        "sourceUrl": "https://github.com/cleverdevil/plexyfin/releases/download/v0.5.1.0/Plexyfin_0.5.1.0.zip",
+        "checksum": "4e75d04c89a9e3d7c37dd8e72ac8d6a8",
+        "timestamp": "2025-05-03T05:24:20Z"
+      },
+      {
+        "version": "0.5.1.0",
         "changelog": "- Added sort title synchronization from Plex collections to Jellyfin collections\n- Minor code improvements and optimizations",
         "targetAbi": "10.9.9.0",
         "sourceUrl": "https://github.com/cleverdevil/plexyfin/releases/download/v0.5.1.0/Plexyfin_0.5.1.0.zip",
