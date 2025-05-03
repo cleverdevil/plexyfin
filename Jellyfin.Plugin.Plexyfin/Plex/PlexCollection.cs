@@ -21,6 +21,12 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
         public string Title { get; set; } = string.Empty;
         
         /// <summary>
+        /// Gets or sets the collection sort title.
+        /// </summary>
+        [JsonPropertyName("sortTitle")]
+        public string SortTitle { get; set; } = string.Empty;
+        
+        /// <summary>
         /// Gets or sets the collection summary.
         /// </summary>
         [JsonPropertyName("summary")]

@@ -133,6 +133,7 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                     {
                         Id = directory.Attribute("ratingKey")?.Value ?? string.Empty,
                         Title = directory.Attribute("title")?.Value ?? string.Empty,
+                        SortTitle = directory.Attribute("titleSort")?.Value ?? string.Empty,
                         Summary = directory.Attribute("summary")?.Value ?? string.Empty
                     };
                     
