@@ -19,6 +19,11 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         public int CollectionsUpdated { get; set; }
         
         /// <summary>
+        /// Gets or sets the number of collections deleted.
+        /// </summary>
+        public int CollectionsDeleted { get; set; }
+        
+        /// <summary>
         /// Gets or sets the number of items with artwork updated.
         /// </summary>
         public int ItemArtworkUpdated { get; set; }
@@ -43,6 +48,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         {
             CollectionsToAdd = new List<SyncCollectionDetail>();
             CollectionsToUpdate = new List<SyncCollectionDetail>();
+            CollectionsToDelete = new List<SyncCollectionDetail>();
         }
         
         /// <summary>
@@ -56,6 +62,12 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         /// </summary>
         [JsonPropertyName("collectionsToUpdate")]
         public List<SyncCollectionDetail> CollectionsToUpdate { get; set; }
+        
+        /// <summary>
+        /// Gets or sets the list of collections that would be deleted.
+        /// </summary>
+        [JsonPropertyName("collectionsToDelete")]
+        public List<SyncCollectionDetail> CollectionsToDelete { get; set; }
         
     }
     
