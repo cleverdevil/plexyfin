@@ -82,7 +82,7 @@ namespace Jellyfin.Plugin.Plexyfin
         {
             // Validate progress parameter
             ArgumentNullException.ThrowIfNull(progress);
-            
+
             // Check if sync is enabled in config
             var config = Plugin.Instance.Configuration;
             if (!config.SyncCollections)
@@ -107,7 +107,7 @@ namespace Jellyfin.Plugin.Plexyfin
 
                 // We have these services directly in the scheduled task, let's use them
                 _logger.LogCreatingController();
-                
+
                 // Create a controller instance to reuse the sync logic
                 var controllerLogger = new PlexyfinControllerLogger(_logger);
                 var controller = new PlexyfinController(
@@ -120,7 +120,7 @@ namespace Jellyfin.Plugin.Plexyfin
 
                 // Call the sync method
                 await controller.SyncFromPlexAsync().ConfigureAwait(false);
-                
+
                 _logger.LogSyncCompleted();
                 progress.Report(100);
             }
@@ -138,14 +138,14 @@ namespace Jellyfin.Plugin.Plexyfin
             if (Plugin.Instance.Configuration.EnableScheduledSync)
             {
                 var interval = Plugin.Instance.Configuration.SyncIntervalHours;
-                
+
                 // Make sure interval is reasonable
                 if (interval < 1)
                 {
                     interval = 24; // Default to daily
                 }
-                
-                return new[] 
+
+                return new[]
                 {
                     new TaskTriggerInfo
                     {
@@ -154,7 +154,7 @@ namespace Jellyfin.Plugin.Plexyfin
                     }
                 };
             }
-            
+
             // Return an empty list if scheduled sync is disabled
             return Array.Empty<TaskTriggerInfo>();
         }
@@ -166,7 +166,7 @@ namespace Jellyfin.Plugin.Plexyfin
     public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         private readonly ILogger<Plugin> _logger;
-        
+
         /// <summary>
         /// Initializes a new instance of the <see cref="Plugin"/> class.
         /// </summary>
@@ -174,7 +174,7 @@ namespace Jellyfin.Plugin.Plexyfin
         /// <param name="xmlSerializer">Instance of the <see cref="IXmlSerializer"/> interface.</param>
         /// <param name="loggerFactory">Instance of the <see cref="ILoggerFactory"/> interface.</param>
         public Plugin(
-            IApplicationPaths applicationPaths, 
+            IApplicationPaths applicationPaths,
             IXmlSerializer xmlSerializer,
             ILoggerFactory loggerFactory)
             : base(applicationPaths, xmlSerializer)
@@ -188,13 +188,13 @@ namespace Jellyfin.Plugin.Plexyfin
         /// Gets the current plugin instance.
         /// </summary>
         public static Plugin Instance { get; private set; } = null!; // Will be initialized in constructor
-        
+
         /// <summary>
         /// Gets or sets the last sync result.
         /// Used for sharing data between API endpoints.
         /// </summary>
         public SyncResult SyncResult { get; set; } = new SyncResult();
-        
+
         // We don't need to override the ApplicationPaths property anymore since we're not using it directly
 
         /// <inheritdoc />
@@ -202,7 +202,7 @@ namespace Jellyfin.Plugin.Plexyfin
 
         /// <inheritdoc />
         public override Guid Id => Guid.Parse("b9f0c474-e9a8-4292-ae41-eb3c1542f4cd");
-        
+
         /// <summary>
         /// Applies configuration to the service collection.
         /// This method is automatically called by the DI system.
@@ -211,16 +211,16 @@ namespace Jellyfin.Plugin.Plexyfin
         public void ApplyToContainer(IServiceCollection serviceCollection)
         {
             _logger.LogRegisteringComponents("Plexyfin");
-            
+
             try
             {
                 // We no longer need the image provider as we're using direct file system access
-                
+
                 // Register the scheduled task
                 serviceCollection.AddSingleton<IScheduledTask, PlexyfinScheduledTask>();
-                
+
                 // IFileSystem should already be registered by Jellyfin's core services
-                
+
                 _logger.LogSuccessfullyRegistered("Plexyfin");
             }
             catch (InvalidOperationException ex)
