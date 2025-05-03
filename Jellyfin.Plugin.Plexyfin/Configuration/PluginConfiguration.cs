@@ -26,6 +26,7 @@ namespace Jellyfin.Plugin.Plexyfin.Configuration
             SelectedLibraries = new List<string>(); // Initialize with empty list
             EnableDebugMode = false; // Default to no debug mode
             // MaxUrlPatternAttempts setting removed as it's no longer needed
+            JellyfinBaseUrl = ""; // Will default to server-determined URL at runtime
         }
 
         /// <summary>
@@ -80,6 +81,12 @@ namespace Jellyfin.Plugin.Plexyfin.Configuration
         /// When enabled, debug images will be saved and more verbose logging will occur.
         /// </summary>
         public bool EnableDebugMode { get; set; }
+        
+        /// <summary>
+        /// Gets or sets the base URL for Jellyfin API calls.
+        /// Used for collection deletion and other API operations.
+        /// </summary>
+        public string JellyfinBaseUrl { get; set; }
         
         // MaxUrlPatternAttempts setting removed as it's no longer needed
         
