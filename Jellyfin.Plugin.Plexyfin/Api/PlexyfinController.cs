@@ -169,26 +169,21 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     syncStatus.Progress = 40;
                 }
                 
-                // Delete existing collections if configured to do so
+                // Check if collection deletion is enabled for logging purposes
                 if (config.DeleteBeforeSync && !dryRun)
                 {
                     if (syncStatus != null)
                     {
-                        syncStatus.Message = "Removing existing collections...";
+                        syncStatus.Message = "Delete collections feature is disabled...";
                         syncStatus.Progress = 45;
                     }
                     
-                    var deletedCount = await DeleteExistingCollectionsAsync().ConfigureAwait(false);
-                    _logger.LogRemovedExistingCollections(deletedCount);
+                    _logger.LogInformation("DeleteBeforeSync is enabled but the feature has been disabled in this version");
                 }
                 else if (config.DeleteBeforeSync && dryRun)
                 {
-                    // In dry run mode, just count existing collections that would be deleted
-                    var collections = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
-                    {
-                        IncludeItemTypes = new[] { BaseItemKind.BoxSet }
-                    });
-                    _logger.LogWouldRemoveExistingCollections(collections.Count());
+                    // In dry run mode, just log a message that the feature is disabled
+                    _logger.LogInformation("Dry run: DeleteBeforeSync is enabled but the feature has been disabled in this version");
                 }
                 
                 if (syncStatus != null)
@@ -295,101 +290,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             return result;
         }
 
-        /// <summary>
-        /// Empties all existing collections in Jellyfin by removing all items, making them invisible in UI.
-        /// </summary>
-        /// <returns>The number of collections emptied.</returns>
-        private async Task<int> DeleteExistingCollectionsAsync()
-        {
-            // Get all BoxSet items (collections) from the library
-            var collections = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
-            {
-                IncludeItemTypes = new[] { BaseItemKind.BoxSet }
-            }).ToList();
-            
-            int count = 0;
-            
-            // We can't permanently delete collections, so we'll have to empty them
-            // and make them invisible to the user, which effectively makes them "gone"
-            foreach (var collection in collections)
-            {
-                try
-                {
-                    // Step 1: First empty the collection by removing all items from it
-                    await _collectionManager.RemoveFromCollectionAsync(collection.Id, Array.Empty<Guid>()).ConfigureAwait(false);
-                    
-                    // Step 2: Make the collection invisible to users by:
-                    // - Setting a special name starting with "."
-                    // - Setting IsVisible to false if the property exists
-                    // - Setting other properties that may hide it in the UI
-                    collection.Name = $".deleted_{collection.Id}_{DateTime.Now.Ticks}";
-                    
-                    try
-                    {
-                        // Try to use reflection to set IsVisible property if it exists
-                        var isVisibleProperty = collection.GetType().GetProperty("IsVisible");
-                        if (isVisibleProperty != null)
-                        {
-                            isVisibleProperty.SetValue(collection, false);
-                        }
-                        
-                        // Try to set other properties that might hide the collection
-                        var lockProperty = collection.GetType().GetProperty("IsLocked");
-                        if (lockProperty != null)
-                        {
-                            lockProperty.SetValue(collection, true);
-                        }
-                    }
-                    catch (InvalidOperationException ex)
-                    {
-                        _logger.LogErrorSettingVisibility(collection.Id, ex);
-                    }
-                    catch (ArgumentException ex)
-                    {
-                        _logger.LogErrorSettingVisibility(collection.Id, ex);
-                    }
-                    catch (TargetInvocationException ex)
-                    {
-                        _logger.LogErrorSettingVisibility(collection.Id, ex);
-                    }
-                    catch (MethodAccessException ex)
-                    {
-                        _logger.LogErrorSettingVisibility(collection.Id, ex);
-                    }
-                    
-                    // Update the collection in the database
-                    await _libraryManager.UpdateItemAsync(
-                        collection,
-                        collection.GetParent(),
-                        ItemUpdateType.MetadataEdit,
-                        CancellationToken.None).ConfigureAwait(false);
-                    
-                    _logger.LogCollectionInvisible(collection.Id);
-                    count++;
-                }
-                catch (InvalidOperationException ex)
-                {
-                    _logger.LogErrorCollection(collection.Name, ex);
-                }
-                catch (ArgumentException ex)
-                {
-                    _logger.LogErrorCollection(collection.Name, ex);
-                }
-                catch (IOException ex)
-                {
-                    _logger.LogErrorCollection(collection.Name, ex);
-                }
-                catch (HttpRequestException ex)
-                {
-                    _logger.LogErrorCollection(collection.Name, ex);
-                }
-            }
-            
-            // Just give the system a moment to process changes
-            await Task.Delay(500).ConfigureAwait(false);
-            
-            return count;
-        }
+        // DeleteExistingCollectionsAsync method has been removed as part of the feature removal
 
         /// <summary>
         /// Syncs collections from Plex to Jellyfin.
@@ -513,6 +414,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                     var syncDetail = new SyncCollectionDetail
                                     {
                                         Title = collection.Title,
+                                        SortTitle = collection.SortTitle,
                                         Summary = collection.Summary,
                                         Items = matchedItemTitles
                                     };
@@ -569,7 +471,24 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                             // Update metadata
                                             newCollection.Overview = collection.Summary;
                                             
-                                            // Save changes
+                                            // Handle sort title specifically - it's important this gets saved properly
+                                            if (!string.IsNullOrEmpty(collection.SortTitle))
+                                            {
+                                                newCollection.SortName = collection.SortTitle;
+                                                _logger.LogInformation("Setting sort title '{SortTitle}' for collection '{Title}'", collection.SortTitle, collection.Title);
+                                                
+                                                // Force an immediate save with just the sort title
+                                                await _libraryManager.UpdateItemAsync(
+                                                    newCollection, 
+                                                    newCollection.GetParent(), 
+                                                    ItemUpdateType.MetadataEdit, 
+                                                    CancellationToken.None).ConfigureAwait(false);
+                                                
+                                                // Verify it was set
+                                                _logger.LogInformation("Collection SortName after save: '{SortName}'", newCollection.SortName);
+                                            }
+                                            
+                                            // Save changes again to ensure all metadata is updated
                                             await _libraryManager.UpdateItemAsync(
                                                 newCollection, 
                                                 newCollection.GetParent(), 
@@ -615,6 +534,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                     var syncDetail = new SyncCollectionDetail
                                     {
                                         Title = collection.Title,
+                                        SortTitle = collection.SortTitle,
                                         Summary = collection.Summary,
                                         Items = matchedItemTitles
                                     };
@@ -628,12 +548,36 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                         // Update metadata
                                         existingCollection.Overview = collection.Summary;
                                         
+                                        // Handle sort title specifically - it's important this gets saved properly
+                                        if (!string.IsNullOrEmpty(collection.SortTitle))
+                                        {
+                                            existingCollection.SortName = collection.SortTitle;
+                                            _logger.LogInformation("Setting sort title '{SortTitle}' for collection '{Title}'", collection.SortTitle, collection.Title);
+                                            
+                                            // Force an immediate save with just the sort title
+                                            await _libraryManager.UpdateItemAsync(
+                                                existingCollection, 
+                                                existingCollection.GetParent(), 
+                                                ItemUpdateType.MetadataEdit, 
+                                                CancellationToken.None).ConfigureAwait(false);
+                                                
+                                            // Verify it was set
+                                            _logger.LogInformation("Collection SortName after save: '{SortName}'", existingCollection.SortName);
+                                        }
+                                        
+                                        // Save metadata changes again
+                                        await _libraryManager.UpdateItemAsync(
+                                            existingCollection, 
+                                            existingCollection.GetParent(), 
+                                            ItemUpdateType.MetadataEdit, 
+                                            CancellationToken.None).ConfigureAwait(false);
+                                        
                                         // Update items in the collection
                                         await _collectionManager.AddToCollectionAsync(
                                             existingCollection.Id, 
                                             jellyfinItems.ToArray()).ConfigureAwait(false);
                                         
-                                        // Save changes
+                                        // Save changes again after adding items
                                         await _libraryManager.UpdateItemAsync(
                                             existingCollection, 
                                             existingCollection.GetParent(), 
