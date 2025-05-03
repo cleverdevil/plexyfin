@@ -17,14 +17,6 @@
         "timestamp": "2025-05-03T05:24:20Z"
       },
       {
-        "version": "0.5.1.0",
-        "changelog": "- Added sort title synchronization from Plex collections to Jellyfin collections\n- Minor code improvements and optimizations",
-        "targetAbi": "10.9.9.0",
-        "sourceUrl": "https://github.com/cleverdevil/plexyfin/releases/download/v0.5.1.0/Plexyfin_0.5.1.0.zip",
-        "checksum": "ff49d36265a36e16e24d47ec669e59ec",
-        "timestamp": "2025-05-02T23:21:05Z"
-      },
-      {
         "version": "0.5.0.0",
         "changelog": "- Removed watch state synchronization for a more focused plugin\n- Improved collection sync with better progress tracking\n- Added dry run capability for testing synchronization\n- Improved UI progress display with more informative updates",
         "targetAbi": "10.9.9.0",
