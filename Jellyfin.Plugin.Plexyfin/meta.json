@@ -8,7 +8,6 @@
   "owner": "plexyfin",
   "category": "General",
   "targetAbi": "10.9.9.0",
-  "changelog": "- Added sort title synchronization from Plex collections to Jellyfin collections
-- Minor code improvements and optimizations",
+  "changelog": "Simplifies collection syncs and adds correct sync for sort titles",
   "imageUrl": "https://raw.githubusercontent.com/plexyfin/plexyfin/main/plexyfin.png"
 }
