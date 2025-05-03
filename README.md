@@ -64,18 +64,31 @@ A plugin for Jellyfin that syncs collections and artwork from your Plex Media Se
 ### Building
 
 ```bash
-# Using the build script
-./build.sh
+# Create a new version
+./new_version.sh 0.7.0.0
 
-# Or manually
-cd Jellyfin.Plugin.Plexyfin
-dotnet build
+# Build a specific version
+./build_release.sh 0.7.0.0
+
+# Build the latest version
+./build_release.sh latest
+
+# Build and update repository manifest
+./build_release.sh 0.7.0.0 --deploy
+
+# Tag and push a release
+./tag_and_release.sh 0.7.0.0 --push
+
+# Prepare GitHub release files
+./prepare_github_release.sh 0.7.0.0
 ```
+
+See [BUILD.md](BUILD.md) for detailed information about the build and release process.
 
 ### Installation
 
-1. Build the plugin
-2. Copy the resulting DLL from `Jellyfin.Plugin.Plexyfin/bin/Debug/net8.0/Jellyfin.Plugin.Plexyfin.dll` to your Jellyfin plugins directory
+1. Build the plugin using `./build_release.sh latest`
+2. Copy the resulting DLL from `dist/Plexyfin_X.Y.Z.Z/Jellyfin.Plugin.Plexyfin.dll` to your Jellyfin plugins directory
 3. Restart Jellyfin
 4. Go to the Jellyfin dashboard and enable the plugin
 
@@ -83,7 +96,7 @@ dotnet build
 
 If you experience build errors:
 - Make sure you're using the latest .NET SDK
-- Use the provided build script which disables treating warnings as errors
+- Use `build_release.sh` which disables treating warnings as errors
 - Check that you have the required dependencies installed
 
 ## License
