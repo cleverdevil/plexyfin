@@ -14,6 +14,17 @@ A plugin for Jellyfin that syncs collections and artwork from your Plex Media Se
 - Selective synchronization of specific Plex libraries
 - Dry run mode to preview changes before applying them
 
+## ⚠️ Important Warning
+
+**This plugin DELETES AND REPLACES artwork in Jellyfin with artwork from Plex.**
+
+When the artwork sync feature is enabled:
+- All existing poster images for media items will be completely removed before new ones are added
+- All existing backdrop/fanart images for media items will be completely removed before new ones are added
+- Custom artwork you've manually set in Jellyfin will be permanently lost
+
+**It is STRONGLY recommended to create a backup of your Jellyfin metadata directory before performing a sync, especially the first time.**
+
 ## Installation
 
 ### Method 1: Easy Installation (Recommended)
@@ -45,10 +56,11 @@ A plugin for Jellyfin that syncs collections and artwork from your Plex Media Se
    - Select which Plex libraries should be included in synchronization
 5. Configure sync options:
    - Enable collection sync
-   - Enable artwork sync
+   - Enable artwork sync (use with caution - see warning above about data loss)
    - Set scheduled sync interval if desired
 6. Click "Save"
-7. Run a manual sync by clicking "Sync from Plex"
+7. Make sure you have a backup of your Jellyfin data before proceeding
+8. Run a manual sync by clicking "Sync Now"
 
 ## Environment Variables
 
