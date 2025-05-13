@@ -2,12 +2,15 @@
   "name": "Plexyfin",
   "id": "b9f0c474-e9a8-4292-ae41-eb3c1542f4cd",
   "guid": "b9f0c474-e9a8-4292-ae41-eb3c1542f4cd",
-  "version": "0.5.1.0",
+  "version": "0.5.2.0",
   "overview": "Plugin for Jellyfin that syncs collections and artwork from Plex to Jellyfin",
   "description": "Syncs collections, artwork, and their metadata from your Plex Media Server to Jellyfin.",
   "owner": "plexyfin",
   "category": "General",
   "targetAbi": "10.9.9.0",
-  "changelog": "Simplifies collection syncs and adds correct sync for sort titles",
+  "changelog": "- Feature 1
+- Feature 2
+- Bug fix 1
+- Improvement 1",
   "imageUrl": "https://raw.githubusercontent.com/plexyfin/plexyfin/main/plexyfin.png"
 }
