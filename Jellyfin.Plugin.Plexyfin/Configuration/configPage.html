@@ -112,6 +112,11 @@
                         <div class="fieldDescription" style="margin-left: 25px; font-size: 90%; margin-bottom: 15px;">
                             When enabled, poster images and backdrops for individual movies and TV shows will be synced from Plex to Jellyfin.
                         </div>
+                        <div class="fieldDescription" style="margin-left: 25px; font-size: 90%; margin-bottom: 15px; color: #d9534f; font-weight: bold; border: 1px solid #d9534f; padding: 10px; border-radius: 4px;">
+                            <span style="font-size: 16px;">⚠️ WARNING</span><br>
+                            Enabling artwork sync will <strong>REPLACE ALL EXISTING ARTWORK</strong> in Jellyfin with the artwork from Plex. All existing posters and backdrops in Jellyfin will be deleted and replaced with Plex's artwork. This operation cannot be undone.<br><br>
+                            <strong>It is STRONGLY recommended to create a backup of your Jellyfin metadata directory before performing a sync.</strong>
+                        </div>
 
                     </div>
 
@@ -185,9 +190,20 @@
                         </div>
 
                         <div class="fieldDescription" style="margin-top: 10px;">
-                            "Sync Now" will immediately sync collections and watch states based on your settings.<br>
+                            "Sync Now" will immediately sync collections and artwork based on your settings.<br>
                             "Dry Run" will show what changes would be made without actually applying them.
                         </div>
+
+                        <div class="fieldDescription" style="margin-top: 15px; color: #d9534f; font-weight: bold; border: 1px solid #d9534f; padding: 10px; border-radius: 4px;">
+                            <span style="font-size: 16px;">⚠️ IMPORTANT - READ BEFORE SYNCING</span><br>
+                            <ul style="padding-left: 20px; margin-top: 10px;">
+                                <li>This plugin <strong>DELETES AND REPLACES</strong> artwork in Jellyfin with artwork from Plex.</li>
+                                <li>All poster images and backdrop images selected for sync will be completely removed and replaced.</li>
+                                <li>Custom artwork you've manually set in Jellyfin will be permanently lost.</li>
+                                <li><strong>BACKUP YOUR JELLYFIN DATA</strong> before running a sync, especially the first time.</li>
+                            </ul>
+                        </div>
+
                         <!-- Progress tracking UI placeholder - actual element will be moved to document body -->
                         <div class="padded-top" style="margin-top: 2em;">
                             <div class="alert" id="syncStatus" style="font-weight: 500;"></div>
@@ -245,6 +261,7 @@
                 .addEventListener('click', function() {
                     selectAllLibraries(false);
                 });
+
 
 
             function showMessage(message, isError) {
@@ -858,6 +875,7 @@
                     showMessage('Error loading plugin configuration. Please refresh the page and try again.', true);
                 });
             }
+
 
             // Run the page initialization
             if (document.readyState === 'loading') {

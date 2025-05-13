@@ -81,7 +81,6 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             _itemRepository = itemRepository;
         }
 
-
         /// <summary>
         /// Internal method for syncing from Plex, used by both the API endpoint and scheduled task.
         /// </summary>
@@ -477,7 +476,6 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                 if (dryRun)
                                 {
                                     // For dry run, record as an update
-                                    _logger.LogUpdateCollection(dryRun ? "Would update" : "Updating", collection.Title);
 
                                     var syncDetail = new SyncCollectionDetail
                                     {
@@ -906,6 +904,112 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         }
 
         /// <summary>
+        /// Clears all images of a specific type for a media item
+        /// </summary>
+        /// <param name="jellyfinItem">The Jellyfin item to clear images from</param>
+        /// <param name="imageType">The type of images to clear (Primary or Backdrop)</param>
+        /// <returns>A task representing the asynchronous operation</returns>
+        private async Task ClearItemImages(BaseItem jellyfinItem, ImageType imageType)
+        {
+            try
+            {
+                var images = jellyfinItem.GetImages(imageType).ToList();
+
+                if (images.Count == 0)
+                {
+                    _logger.LogInformation("No {0} images to clear for {1}", imageType, jellyfinItem.Name);
+                    return;
+                }
+
+                _logger.LogInformation("Clearing {0} {1} images for {2}", images.Count, imageType, jellyfinItem.Name);
+
+                // Create a copy of the image list to avoid potential issues with modifying while iterating
+                var imagesCopy = images.ToList();
+
+                // First remove images from the item metadata
+                foreach (var image in imagesCopy)
+                {
+                    try
+                    {
+                        _logger.LogInformation("Removing {0} image from item {1}", imageType, jellyfinItem.Name);
+                        jellyfinItem.RemoveImage(image);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error removing {0} image from {1}", imageType, jellyfinItem.Name);
+                    }
+                }
+
+                try
+                {
+                    // Update the repository immediately to register the image removal
+                    _logger.LogInformation("Updating repository after {0} image removal for {1}", imageType, jellyfinItem.Name);
+                    await jellyfinItem.UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, CancellationToken.None).ConfigureAwait(false);
+
+                    // Add a delay to allow the repository update to take effect
+                    await Task.Delay(500).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error updating repository after removing {0} images from {1}", imageType, jellyfinItem.Name);
+                }
+
+                // Then attempt to delete the physical files
+                foreach (var image in imagesCopy)
+                {
+                    try
+                    {
+                        if (image.IsLocalFile && !string.IsNullOrEmpty(image.Path))
+                        {
+                            if (System.IO.File.Exists(image.Path))
+                            {
+                                _logger.LogInformation("Deleting existing {0} image file: {1}", imageType, image.Path);
+                                BaseItem.FileSystem.DeleteFile(image.Path);
+
+                                // Add a small delay between deleting each file to prevent race conditions
+                                await Task.Delay(50).ConfigureAwait(false);
+                            }
+                            else
+                            {
+                                _logger.LogInformation("{0} image file already deleted or not found: {1}", imageType, image.Path);
+                            }
+                        }
+                    }
+                    catch (IOException ex)
+                    {
+                        // File might be in use by another process, just log and continue
+                        _logger.LogWarning(ex, "File in use, unable to delete {0} image file: {1}", imageType, image.Path);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error deleting {0} image file: {1}", imageType, image.Path);
+                    }
+                }
+
+                // Add a longer delay to allow file system operations to complete
+                await Task.Delay(500).ConfigureAwait(false);
+
+                // Final repository update to ensure all changes are saved
+                try
+                {
+                    await _libraryManager.UpdateItemAsync(
+                        jellyfinItem,
+                        jellyfinItem.GetParent(),
+                        ItemUpdateType.ImageUpdate,
+                        CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error in final update after clearing {0} images for {1}", imageType, jellyfinItem.Name);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error clearing {0} images for {1}", imageType, jellyfinItem.Name);
+            }
+        }
+
+        /// <summary>
         /// Processes artwork for an individual movie or TV show item.
         /// </summary>
         /// <param name="jellyfinItem">The Jellyfin item.</param>
@@ -931,6 +1035,9 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 if (plexItem.ThumbUrl != null)
                 {
                     _logger.LogDownloadingThumbnail("item", plexItem.ThumbUrl.ToString());
+
+                    // Clear existing Primary images before saving the new one
+                    await ClearItemImages(jellyfinItem, ImageType.Primary).ConfigureAwait(false);
 
                     var response = await httpClient.GetAsync(plexItem.ThumbUrl).ConfigureAwait(false);
                     response.EnsureSuccessStatusCode();
@@ -1014,6 +1121,9 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 if (plexItem.ArtUrl != null)
                 {
                     _logger.LogDownloadingItemArt("item", plexItem.ArtUrl.ToString());
+
+                    // Clear existing Backdrop images before saving the new one
+                    await ClearItemImages(jellyfinItem, ImageType.Backdrop).ConfigureAwait(false);
 
                     var response = await httpClient.GetAsync(plexItem.ArtUrl).ConfigureAwait(false);
                     response.EnsureSuccessStatusCode();
@@ -2031,5 +2141,6 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 });
             }
         }
+
     }
 }
