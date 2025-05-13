@@ -9,6 +9,14 @@
     "category": "Metadata",
     "versions": [
       {
+        "version": "0.5.2.0",
+        "changelog": "- Add image clearing before saving during sync\n- Clear all Primary and Backdrop images before saving new ones\n- Add robust error handling for file operations\n- Add warning messages about image deletion to UI and docs\n- Remove the test artwork functionality",
+        "targetAbi": "10.9.9.0",
+        "sourceUrl": "https://github.com/cleverdevil/plexyfin/releases/download/v0.5.2.0/Plexyfin_0.5.2.0.zip",
+        "checksum": "c470782535f33877fa2bd1ba12dba2c2",
+        "timestamp": "2025-05-13T01:39:48Z"
+      },
+      {
         "version": "0.5.1.0",
         "changelog": "Simplifies collection syncs and adds correct sync for sort titles",
         "targetAbi": "10.9.9.0",
