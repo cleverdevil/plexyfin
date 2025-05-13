@@ -8,10 +8,6 @@
   "owner": "plexyfin",
   "category": "General",
   "targetAbi": "10.9.9.0",
-  "changelog": "- Add image clearing before saving during sync
-- Clear all Primary and Backdrop images before saving new ones
-- Add robust error handling for file operations
-- Add warning messages about image deletion to UI and docs
-- Remove the test artwork functionality",
+  "changelog": "- Add image clearing before saving during sync\n- Clear all Primary and Backdrop images before saving new ones\n- Add robust error handling for file operations\n- Add warning messages about image deletion to UI and docs\n- Remove the test artwork functionality",
   "imageUrl": "https://raw.githubusercontent.com/plexyfin/plexyfin/main/plexyfin.png"
 }
