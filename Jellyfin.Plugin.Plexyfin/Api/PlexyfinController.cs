@@ -1010,6 +1010,278 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         }
 
         /// <summary>
+        /// Processes artwork for a TV show season.
+        /// </summary>
+        /// <param name="series">The Jellyfin TV series.</param>
+        /// <param name="plexSeason">The Plex season.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        private async Task<bool> ProcessSeasonArtwork(BaseItem series, PlexSeason plexSeason)
+        {
+            if (series == null)
+            {
+                _logger.LogError("Cannot process season artwork: Series is null");
+                return false;
+            }
+
+            // Find the matching season in Jellyfin
+            var jellySeason = FindJellyfinSeason(series, plexSeason.Index);
+            if (jellySeason == null)
+            {
+                _logger.LogError("Cannot find Jellyfin season {0} for series {1}", plexSeason.Index, series.Name);
+                return false;
+            }
+
+            _logger.LogInformation("Processing artwork for season {0} of {1}", plexSeason.Index, series.Name);
+
+            using var httpClient = _httpClientFactory.CreateClient();
+            httpClient.DefaultRequestHeaders.Add("User-Agent", "Jellyfin-Plexyfin-Plugin");
+            bool hasChanges = false;
+
+            try
+            {
+                // Process primary image (poster/thumbnail) for the season
+                if (plexSeason.ThumbUrl != null)
+                {
+                    _logger.LogInformation("Downloading season thumbnail: {0}", plexSeason.ThumbUrl.ToString());
+
+                    // Clear existing Primary images before saving the new one
+                    await ClearItemImages(jellySeason, ImageType.Primary).ConfigureAwait(false);
+
+                    var response = await httpClient.GetAsync(plexSeason.ThumbUrl).ConfigureAwait(false);
+                    response.EnsureSuccessStatusCode();
+
+                    // Get content type from the response if available
+                    string mimeType = "image/png"; // Default to image/png
+                    if (response.Content.Headers.ContentType != null)
+                    {
+                        mimeType = response.Content.Headers.ContentType?.MediaType ?? "image/png";
+                    }
+                    else
+                    {
+                        // Try to determine MIME type from URL
+                        mimeType = GetMimeTypeFromUrl(plexSeason.ThumbUrl.ToString());
+                    }
+
+                    // Use a memory stream to fully buffer the content
+                    byte[] imageData;
+                    using (var imageStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                    {
+                        using var memStream = new MemoryStream();
+                        await imageStream.CopyToAsync(memStream).ConfigureAwait(false);
+                        imageData = memStream.ToArray();
+                    }
+
+                    // Add a small delay to allow any file handles to be completely closed
+                    await Task.Delay(100).ConfigureAwait(false);
+
+                    // Set the image directly on the Season item
+                    if (_providerManager != null)
+                    {
+                        await _libraryManager.UpdateItemAsync(
+                            jellySeason,
+                            jellySeason.GetParent(),
+                            ItemUpdateType.ImageUpdate,
+                            CancellationToken.None).ConfigureAwait(false);
+
+                        // Use memory stream and ImageType enum
+                        using var saveStream = new MemoryStream(imageData);
+                        try
+                        {
+                            await _providerManager.SaveImage(
+                                jellySeason,
+                                saveStream,
+                                mimeType,
+                                ImageType.Primary,
+                                null,
+                                CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch (IOException ex)
+                        {
+                            _logger.LogError(ex, "I/O error saving season thumbnail image");
+                            // Add a longer delay and try once more
+                            await Task.Delay(500).ConfigureAwait(false);
+
+                            using var retryStream = new MemoryStream(imageData);
+                            await _providerManager.SaveImage(
+                                jellySeason,
+                                retryStream,
+                                mimeType,
+                                ImageType.Primary,
+                                null,
+                                CancellationToken.None).ConfigureAwait(false);
+                        }
+
+                        hasChanges = true;
+                        _logger.LogInformation("Saved season thumbnail for {0} season {1}", series.Name, plexSeason.Index);
+                    }
+                    else
+                    {
+                        _logger.LogError("Cannot save season thumbnail: Provider manager is null");
+                    }
+                }
+
+                // Process backdrop image for the season (if available)
+                if (plexSeason.ArtUrl != null)
+                {
+                    _logger.LogInformation("Downloading season backdrop: {0}", plexSeason.ArtUrl.ToString());
+
+                    // Clear existing Backdrop images before saving the new one
+                    await ClearItemImages(jellySeason, ImageType.Backdrop).ConfigureAwait(false);
+
+                    var response = await httpClient.GetAsync(plexSeason.ArtUrl).ConfigureAwait(false);
+                    response.EnsureSuccessStatusCode();
+
+                    // Get content type from the response if available
+                    string mimeType = "image/png"; // Default to image/png
+                    if (response.Content.Headers.ContentType != null)
+                    {
+                        mimeType = response.Content.Headers.ContentType?.MediaType ?? "image/png";
+                    }
+                    else
+                    {
+                        // Try to determine MIME type from URL
+                        mimeType = GetMimeTypeFromUrl(plexSeason.ArtUrl.ToString());
+                    }
+
+                    // Use a memory stream to fully buffer the content
+                    byte[] imageData;
+                    using (var imageStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                    {
+                        using var memStream = new MemoryStream();
+                        await imageStream.CopyToAsync(memStream).ConfigureAwait(false);
+                        imageData = memStream.ToArray();
+                    }
+
+                    // Add a small delay to allow any file handles to be completely closed
+                    await Task.Delay(100).ConfigureAwait(false);
+
+                    // Set the image directly on the Season item
+                    if (_providerManager != null)
+                    {
+                        await _libraryManager.UpdateItemAsync(
+                            jellySeason,
+                            jellySeason.GetParent(),
+                            ItemUpdateType.ImageUpdate,
+                            CancellationToken.None).ConfigureAwait(false);
+
+                        // Use memory stream and ImageType enum
+                        using var saveStream = new MemoryStream(imageData);
+                        try
+                        {
+                            await _providerManager.SaveImage(
+                                jellySeason,
+                                saveStream,
+                                mimeType,
+                                ImageType.Backdrop,
+                                null,
+                                CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch (IOException ex)
+                        {
+                            _logger.LogError(ex, "I/O error saving season backdrop image");
+                            // Add a longer delay and try once more
+                            await Task.Delay(500).ConfigureAwait(false);
+
+                            using var retryStream = new MemoryStream(imageData);
+                            await _providerManager.SaveImage(
+                                jellySeason,
+                                retryStream,
+                                mimeType,
+                                ImageType.Backdrop,
+                                null,
+                                CancellationToken.None).ConfigureAwait(false);
+                        }
+
+                        hasChanges = true;
+                        _logger.LogInformation("Saved season backdrop for {0} season {1}", series.Name, plexSeason.Index);
+                    }
+                    else
+                    {
+                        _logger.LogError("Cannot save season backdrop: Provider manager is null");
+                    }
+                }
+
+                // Refresh artwork after changes
+                if (hasChanges)
+                {
+                    await _libraryManager.UpdateItemAsync(
+                        jellySeason,
+                        jellySeason.GetParent(),
+                        ItemUpdateType.ImageUpdate,
+                        CancellationToken.None).ConfigureAwait(false);
+
+                    _logger.LogInformation("Updated repository with season images");
+                }
+
+                return hasChanges;
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogError(ex, "Error processing season artwork for {0} season {1}", series.Name, plexSeason.Index);
+                return false;
+            }
+            catch (IOException ex)
+            {
+                _logger.LogError(ex, "I/O error processing season artwork for {0} season {1}", series.Name, plexSeason.Index);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error processing season artwork for {0} season {1}", series.Name, plexSeason.Index);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Finds a season in a Jellyfin TV series by its index.
+        /// </summary>
+        /// <param name="series">The TV series.</param>
+        /// <param name="seasonIndex">The season index (0 for Specials, 1 for Season 1, etc.).</param>
+        /// <returns>The season item if found, null otherwise.</returns>
+        private BaseItem? FindJellyfinSeason(BaseItem series, int seasonIndex)
+        {
+            try
+            {
+                // Check if the item is a Series
+                if (!(series is MediaBrowser.Controller.Entities.TV.Series tvSeries))
+                {
+                    _logger.LogError("Cannot find season: Item is not a TV series");
+                    return null;
+                }
+
+                // Get all seasons from the series
+                var seasons = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
+                {
+                    Parent = tvSeries,
+                    IncludeItemTypes = new[] { BaseItemKind.Season }
+                });
+
+                // Look for a season with the matching index number
+                foreach (var season in seasons)
+                {
+                    if (season is MediaBrowser.Controller.Entities.TV.Season jellySeason)
+                    {
+                        int jellySeasonNumber = jellySeason.IndexNumber.HasValue ? (int)jellySeason.IndexNumber.Value : -1;
+
+                        // Match the season numbers
+                        if (jellySeasonNumber == seasonIndex)
+                        {
+                            return season;
+                        }
+                    }
+                }
+
+                _logger.LogError("Season {0} not found in TV series {1}", seasonIndex, series.Name);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error finding season {0} in TV series {1}", seasonIndex, series.Name);
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Processes artwork for an individual movie or TV show item.
         /// </summary>
         /// <param name="jellyfinItem">The Jellyfin item.</param>
@@ -1028,6 +1300,75 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             using var httpClient = _httpClientFactory.CreateClient();
             httpClient.DefaultRequestHeaders.Add("User-Agent", "Jellyfin-Plexyfin-Plugin");
             bool hasChanges = false;
+
+            try
+            {
+                // Check if this is a TV series, as seasons need special handling
+                bool isTvSeries = jellyfinItem is MediaBrowser.Controller.Entities.TV.Series;
+                if (isTvSeries && plexItem.Type.Equals("show", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogInformation("Item {0} is a TV series, processing seasons", jellyfinItem.Name);
+
+                    // Process the main series artwork first
+                    int artworkCount = await ProcessMainItemArtwork(jellyfinItem, plexItem).ConfigureAwait(false);
+                    hasChanges = artworkCount > 0;
+
+                    // Get and process seasons for TV series
+                    var plexSeasons = await GetAndProcessTvSeriesSeasons(jellyfinItem, plexItem.Id).ConfigureAwait(false);
+                    _logger.LogInformation("Processed {0} seasons for TV series {1}", plexSeasons, jellyfinItem.Name);
+                }
+                else
+                {
+                    // Process as a normal item (movie, music album, etc.)
+                    int artworkCount = await ProcessMainItemArtwork(jellyfinItem, plexItem).ConfigureAwait(false);
+                    hasChanges = artworkCount > 0;
+                }
+
+                // Refresh artwork after changes
+                if (hasChanges)
+                {
+                    await _libraryManager.UpdateItemAsync(
+                        jellyfinItem,
+                        jellyfinItem.GetParent(),
+                        ItemUpdateType.ImageUpdate,
+                        CancellationToken.None).ConfigureAwait(false);
+
+                    _logger.LogUpdatedRepoWithImages("item");
+                }
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogErrorProcessingArtwork("item", jellyfinItem.Name, ex);
+            }
+            catch (IOException ex)
+            {
+                _logger.LogErrorProcessingArtwork("item", jellyfinItem.Name, ex);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogErrorProcessingArtwork("item", jellyfinItem.Name, ex);
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogErrorProcessingArtwork("item", jellyfinItem.Name, ex);
+            }
+            catch (NullReferenceException ex)
+            {
+                _logger.LogErrorProcessingArtwork("item", jellyfinItem.Name, ex);
+            }
+        }
+
+        /// <summary>
+        /// Processes the main artwork (Primary and Backdrop) for a Jellyfin item.
+        /// </summary>
+        /// <param name="jellyfinItem">The Jellyfin item.</param>
+        /// <param name="plexItem">The Plex item.</param>
+        /// <returns>The number of artwork images processed.</returns>
+        private async Task<int> ProcessMainItemArtwork(BaseItem jellyfinItem, PlexItem plexItem)
+        {
+            int processedCount = 0;
+            using var httpClient = _httpClientFactory.CreateClient();
+            httpClient.DefaultRequestHeaders.Add("User-Agent", "Jellyfin-Plexyfin-Plugin");
 
             try
             {
@@ -1108,7 +1449,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                 CancellationToken.None).ConfigureAwait(false);
                         }
 
-                        hasChanges = true;
+                        processedCount++;
                         _logger.LogSavedThumbnail("item", jellyfinItem.Name);
                     }
                     else
@@ -1194,7 +1535,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                 CancellationToken.None).ConfigureAwait(false);
                         }
 
-                        hasChanges = true;
+                        processedCount++;
                         _logger.LogSavedArtwork("item");
                     }
                     else
@@ -1202,39 +1543,64 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         _logger.LogCannotSaveBackdrop("item");
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing main artwork for {0}", jellyfinItem.Name);
+            }
 
-                // Refresh artwork after changes
-                if (hasChanges)
+            return processedCount;
+        }
+
+        /// <summary>
+        /// Gets and processes TV series seasons from Plex.
+        /// </summary>
+        /// <param name="series">The Jellyfin TV series.</param>
+        /// <param name="plexSeriesId">The Plex series ID.</param>
+        /// <returns>The number of seasons processed.</returns>
+        private async Task<int> GetAndProcessTvSeriesSeasons(BaseItem series, string plexSeriesId)
+        {
+            int processedSeasons = 0;
+
+            try
+            {
+                // Check if the item is a Series
+                if (!(series is MediaBrowser.Controller.Entities.TV.Series tvSeries))
                 {
-                    await _libraryManager.UpdateItemAsync(
-                        jellyfinItem,
-                        jellyfinItem.GetParent(),
-                        ItemUpdateType.ImageUpdate,
-                        CancellationToken.None).ConfigureAwait(false);
-
-                    _logger.LogUpdatedRepoWithImages("item");
+                    _logger.LogError("Cannot process seasons: Item is not a TV series");
+                    return 0;
                 }
+
+                // Create a Plex client instance
+                var config = Plugin.Instance!.Configuration;
+                var plexServerUri = string.IsNullOrEmpty(config.PlexServerUrl)
+                    ? new Uri("http://localhost")
+                    : new Uri(config.PlexServerUrl ?? "http://localhost");
+                var plexClient = new PlexClient(_httpClientFactory, _logger, plexServerUri, config.PlexApiToken, config);
+
+                // Get seasons from Plex
+                var plexSeasons = await plexClient.GetTvSeriesSeasons(plexSeriesId).ConfigureAwait(false);
+
+                _logger.LogInformation("Found {0} seasons for TV series {1}", plexSeasons.Count, series.Name);
+
+                // Process each season
+                foreach (var plexSeason in plexSeasons)
+                {
+                    bool seasonProcessed = await ProcessSeasonArtwork(series, plexSeason).ConfigureAwait(false);
+                    if (seasonProcessed)
+                    {
+                        processedSeasons++;
+                    }
+                }
+
+                _logger.LogInformation("Processed artwork for {0} seasons of {1}", processedSeasons, series.Name);
             }
-            catch (HttpRequestException ex)
+            catch (Exception ex)
             {
-                _logger.LogErrorProcessingArtwork("item", jellyfinItem.Name, ex);
+                _logger.LogError(ex, "Error processing seasons for TV series {0}", series.Name);
             }
-            catch (IOException ex)
-            {
-                _logger.LogErrorProcessingArtwork("item", jellyfinItem.Name, ex);
-            }
-            catch (InvalidOperationException ex)
-            {
-                _logger.LogErrorProcessingArtwork("item", jellyfinItem.Name, ex);
-            }
-            catch (ArgumentException ex)
-            {
-                _logger.LogErrorProcessingArtwork("item", jellyfinItem.Name, ex);
-            }
-            catch (NullReferenceException ex)
-            {
-                _logger.LogErrorProcessingArtwork("item", jellyfinItem.Name, ex);
-            }
+
+            return processedSeasons;
         }
 
         /// <summary>

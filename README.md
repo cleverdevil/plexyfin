@@ -9,6 +9,8 @@ A plugin for Jellyfin that syncs collections and artwork from your Plex Media Se
 ## Features
 
 - Sync collections from Plex to Jellyfin with their artwork
+- Sync media artwork (Primary/Poster and Backdrop/Fanart) from Plex to Jellyfin
+- Sync TV Show Season artwork from Plex to Jellyfin
 - Schedule automatic synchronization at configurable intervals
 - Support for movies and TV shows in collections
 - Selective synchronization of specific Plex libraries
@@ -21,6 +23,7 @@ A plugin for Jellyfin that syncs collections and artwork from your Plex Media Se
 When the artwork sync feature is enabled:
 - All existing poster images for media items will be completely removed before new ones are added
 - All existing backdrop/fanart images for media items will be completely removed before new ones are added
+- All existing poster and backdrop images for TV show seasons will be completely removed before new ones are added
 - Custom artwork you've manually set in Jellyfin will be permanently lost
 
 **It is STRONGLY recommended to create a backup of your Jellyfin metadata directory before performing a sync, especially the first time.**
@@ -57,6 +60,10 @@ When the artwork sync feature is enabled:
 5. Configure sync options:
    - Enable collection sync
    - Enable artwork sync (use with caution - see warning above about data loss)
+   - The artwork sync includes:
+     - Movie posters and backdrops
+     - TV Series posters and backdrops
+     - TV Show Season posters and backdrops
    - Set scheduled sync interval if desired
 6. Click "Save"
 7. Make sure you have a backup of your Jellyfin data before proceeding
