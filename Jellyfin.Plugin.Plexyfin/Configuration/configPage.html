@@ -139,6 +139,10 @@
                                 How often to sync from Plex (in hours). Minimum 1 hour, maximum 168 hours (1 week).
                             </div>
                         </div>
+                        
+                        <div class="fieldDescription" style="margin-top: 10px; padding: 10px; background-color: #f0f0f0; border-left: 4px solid #0078d4; border-radius: 4px;">
+                            <strong>Note:</strong> After changing scheduled sync settings, you must restart Jellyfin for the changes to take effect. Alternatively, you can manually run the sync task from Jellyfin's Scheduled Tasks page.
+                        </div>
                     </div>
 
                     <div class="verticalSection">
@@ -274,11 +278,12 @@
                     saveResultElem.classList.add('successMessage');
                     saveResultElem.classList.remove('errorMessage');
                 }
-                // Auto-hide after 5 seconds
+                // Auto-hide after 5 seconds (or 10 seconds for longer messages)
+                const hideDelay = message.length > 50 ? 10000 : 5000;
                 setTimeout(() => {
                     saveResultElem.innerText = '';
                     saveResultElem.classList.remove('successMessage', 'errorMessage');
-                }, 5000);
+                }, hideDelay);
             }
 
             function showConnectionMessage(message, isError) {
@@ -802,6 +807,10 @@
 
                 // Get current configuration
                 ApiClient.getPluginConfiguration(PlexyfinConfig.pluginUniqueId).then(function (config) {
+                    // Store original scheduled sync settings to detect changes
+                    var originalEnableScheduledSync = config.EnableScheduledSync;
+                    var originalSyncIntervalHours = config.SyncIntervalHours;
+                    
                     // Update with new values from form
                     config.PlexServerUrl = document.querySelector('#PlexServerUrl').value;
                     config.PlexApiToken = document.querySelector('#PlexApiToken').value;
@@ -828,10 +837,19 @@
                     // Make sure selected libraries are included
                     config.SelectedLibraries = PlexyfinConfig.selectedLibraryIds;
 
+                    // Check if scheduled sync settings have changed
+                    var scheduledSyncChanged = (originalEnableScheduledSync !== config.EnableScheduledSync) || 
+                                              (originalSyncIntervalHours !== config.SyncIntervalHours);
+
                     // Save updated configuration
                     ApiClient.updatePluginConfiguration(PlexyfinConfig.pluginUniqueId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
-                        showMessage('Settings saved successfully!', false);
+                        
+                        if (scheduledSyncChanged) {
+                            showMessage('Settings saved successfully! Please restart Jellyfin for scheduled sync changes to take effect.', false);
+                        } else {
+                            showMessage('Settings saved successfully!', false);
+                        }
                     });
                 });
             }

@@ -2,16 +2,15 @@
   "name": "Plexyfin",
   "id": "b9f0c474-e9a8-4292-ae41-eb3c1542f4cd",
   "guid": "b9f0c474-e9a8-4292-ae41-eb3c1542f4cd",
-  "version": "0.5.2.0",
+  "version": "0.5.3.0",
   "overview": "Plugin for Jellyfin that syncs collections and artwork from Plex to Jellyfin",
   "description": "Syncs collections, artwork, and their metadata from your Plex Media Server to Jellyfin.",
   "owner": "plexyfin",
   "category": "General",
   "targetAbi": "10.9.9.0",
-  "changelog": "- Add image clearing before saving during sync
-- Clear all Primary and Backdrop images before saving new ones
-- Add robust error handling for file operations
-- Add warning messages about image deletion to UI and docs
-- Remove the test artwork functionality",
+  "changelog": "- Fixed scheduled sync not working when collection sync is disabled (issue #6)
+- Added notification to restart Jellyfin when scheduled sync settings change
+- Improved scheduled sync configuration UI with helpful instructions
+- Use external IDs for more reliable Plex-Jellyfin matching (issue #7)",
   "imageUrl": "https://raw.githubusercontent.com/plexyfin/plexyfin/main/plexyfin.png"
 }
