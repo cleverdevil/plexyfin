@@ -29,6 +29,96 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.Plexyfin.Api
 {
     /// <summary>
+    /// Provides fast lookup of Jellyfin items by external IDs.
+    /// </summary>
+    internal class JellyfinItemIndex
+    {
+        private readonly Dictionary<string, BaseItem> _imdbIndex = new Dictionary<string, BaseItem>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, BaseItem> _tmdbIndex = new Dictionary<string, BaseItem>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, BaseItem> _tvdbIndex = new Dictionary<string, BaseItem>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, BaseItem> _titleIndex = new Dictionary<string, BaseItem>(StringComparer.OrdinalIgnoreCase);
+        private readonly ILogger _logger;
+
+        public JellyfinItemIndex(ILogger logger)
+        {
+            _logger = logger;
+        }
+
+        /// <summary>
+        /// Builds the index from a list of Jellyfin items.
+        /// </summary>
+        public void BuildIndex(IReadOnlyList<BaseItem> items)
+        {
+            _logger.LogInformation("Building Jellyfin item index for {0} items", items.Count);
+            
+            foreach (var item in items)
+            {
+                // Index by title (for fallback matching)
+                if (!string.IsNullOrEmpty(item.Name))
+                {
+                    _titleIndex[item.Name] = item;
+                }
+                
+                // Index by external IDs
+                if (item.ProviderIds.TryGetValue("Imdb", out var imdbId) && !string.IsNullOrEmpty(imdbId))
+                {
+                    _imdbIndex[imdbId] = item;
+                }
+                
+                if (item.ProviderIds.TryGetValue("Tmdb", out var tmdbId) && !string.IsNullOrEmpty(tmdbId))
+                {
+                    _tmdbIndex[tmdbId] = item;
+                }
+                
+                if (item.ProviderIds.TryGetValue("Tvdb", out var tvdbId) && !string.IsNullOrEmpty(tvdbId))
+                {
+                    _tvdbIndex[tvdbId] = item;
+                }
+            }
+            
+            _logger.LogInformation("Index built: {0} IMDb, {1} TMDb, {2} TVDb, {3} titles indexed", 
+                _imdbIndex.Count, _tmdbIndex.Count, _tvdbIndex.Count, _titleIndex.Count);
+        }
+
+        /// <summary>
+        /// Finds a Jellyfin item matching the given Plex item.
+        /// </summary>
+        public BaseItem? FindMatch(PlexItem plexItem)
+        {
+            // Try IMDb ID first (most reliable for movies)
+            if (!string.IsNullOrEmpty(plexItem.ImdbId) && _imdbIndex.TryGetValue(plexItem.ImdbId, out var imdbMatch))
+            {
+                _logger.LogDebug("Matched '{0}' by IMDb ID: {1}", plexItem.Title, plexItem.ImdbId);
+                return imdbMatch;
+            }
+            
+            // Try TMDb ID (good for movies and TV shows)
+            if (!string.IsNullOrEmpty(plexItem.TmdbId) && _tmdbIndex.TryGetValue(plexItem.TmdbId, out var tmdbMatch))
+            {
+                _logger.LogDebug("Matched '{0}' by TMDb ID: {1}", plexItem.Title, plexItem.TmdbId);
+                return tmdbMatch;
+            }
+            
+            // Try TVDb ID (primarily for TV shows)
+            if (!string.IsNullOrEmpty(plexItem.TvdbId) && _tvdbIndex.TryGetValue(plexItem.TvdbId, out var tvdbMatch))
+            {
+                _logger.LogDebug("Matched '{0}' by TVDb ID: {1}", plexItem.Title, plexItem.TvdbId);
+                return tvdbMatch;
+            }
+            
+            // Fall back to title matching
+            if (!string.IsNullOrEmpty(plexItem.Title) && _titleIndex.TryGetValue(plexItem.Title, out var titleMatch))
+            {
+                _logger.LogDebug("Matched '{0}' by title", plexItem.Title);
+                return titleMatch;
+            }
+            
+            _logger.LogDebug("No match found for '{0}'", plexItem.Title);
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Controller for Plexyfin API endpoints.
     /// </summary>
     [ApiController]
@@ -115,6 +205,19 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 ? new Uri("http://localhost")
                 : new Uri(config.PlexServerUrl ?? "http://localhost");
             var plexClient = new PlexClient(_httpClientFactory, _logger, plexServerUri, config.PlexApiToken, config);
+            
+            // Build the Jellyfin item index for efficient matching
+            _logger.LogInformation("Building Jellyfin item index for efficient matching...");
+            var jellyfinIndex = new JellyfinItemIndex(_logger);
+            
+            // Get all movies and TV series from Jellyfin
+            var allJellyfinItems = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
+            {
+                IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series }
+            });
+            
+            jellyfinIndex.BuildIndex(allJellyfinItems);
+            _logger.LogInformation("Jellyfin item index ready");
 
             // Sync library item artwork if enabled (this happens first to ensure all items have artwork before collections)
             if (config.SyncItemArtwork)
@@ -132,7 +235,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 if (!dryRun)
                 {
                     // Process all libraries
-                    var libraryArtworkResult = await SyncItemArtworkFromPlexAsync(plexClient, dryRun, syncStatus).ConfigureAwait(false);
+                    var libraryArtworkResult = await SyncItemArtworkFromPlexAsync(plexClient, jellyfinIndex, dryRun, syncStatus).ConfigureAwait(false);
                     result.ItemArtworkUpdated = libraryArtworkResult;
 
                     _logger.LogItemArtworkSyncCompleted(result.ItemArtworkUpdated);
@@ -183,7 +286,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     syncStatus.Progress = 50;
                 }
 
-                var collectionResults = await SyncCollectionsFromPlexAsync(plexClient, dryRun, syncStatus).ConfigureAwait(false);
+                var collectionResults = await SyncCollectionsFromPlexAsync(plexClient, jellyfinIndex, dryRun, syncStatus).ConfigureAwait(false);
                 result.CollectionsAdded = collectionResults.added;
                 result.CollectionsUpdated = collectionResults.updated;
 
@@ -370,6 +473,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         /// <returns>A tuple containing the number of collections added and updated along with the collection details.</returns>
         private async Task<(int added, int updated, List<SyncCollectionDetail> collectionsToAdd, List<SyncCollectionDetail> collectionsToUpdate)> SyncCollectionsFromPlexAsync(
             PlexClient plexClient,
+            JellyfinItemIndex jellyfinIndex,
             bool dryRun = false,
             SyncStatus? syncStatus = null)
         {
@@ -445,14 +549,8 @@ namespace Jellyfin.Plugin.Plexyfin.Api
 
                             foreach (var plexItem in plexItems)
                             {
-                                // Try to find by name
-                                var matchingItems = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
-                                {
-                                    Name = plexItem.Title,
-                                    IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series }
-                                });
-
-                                var jellyfinItem = matchingItems.FirstOrDefault();
+                                // Use the efficient index lookup
+                                var jellyfinItem = jellyfinIndex.FindMatch(plexItem);
 
                                 if (jellyfinItem != null)
                                 {
@@ -1665,6 +1763,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         /// <returns>The number of items with artwork updated.</returns>
         private async Task<int> SyncItemArtworkFromPlexAsync(
             PlexClient plexClient,
+            JellyfinItemIndex jellyfinIndex,
             bool dryRun = false,
             SyncStatus? syncStatus = null)
         {
@@ -1725,14 +1824,8 @@ namespace Jellyfin.Plugin.Plexyfin.Api
 
                         try
                         {
-                            // Try to find a matching item in Jellyfin
-                            var matchingItems = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
-                            {
-                                Name = plexItem.Title,
-                                IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series }
-                            });
-
-                            var jellyfinItem = matchingItems.FirstOrDefault();
+                            // Use the efficient index lookup
+                            var jellyfinItem = jellyfinIndex.FindMatch(plexItem);
 
                             if (jellyfinItem != null)
                             {
@@ -2506,6 +2599,19 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     error = $"I/O error: {ex.Message}"
                 });
             }
+        }
+
+
+        /// <summary>
+        /// Finds a Jellyfin season that matches the given Plex season.
+        /// </summary>
+        /// <param name="plexSeason">The Plex season to match.</param>
+        /// <param name="seriesItem">The parent series item in Jellyfin.</param>
+        /// <returns>The matching Jellyfin season, or null if no match is found.</returns>
+        private BaseItem? FindMatchingJellyfinSeason(PlexSeason plexSeason, BaseItem seriesItem)
+        {
+            // Use the existing FindJellyfinSeason method that already handles this correctly
+            return FindJellyfinSeason(seriesItem, plexSeason.Index);
         }
 
     }

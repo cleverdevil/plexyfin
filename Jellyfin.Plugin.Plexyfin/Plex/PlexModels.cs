@@ -67,6 +67,24 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
         /// </summary>
         [JsonPropertyName("artUrl")]
         public Uri? ArtUrl { get; set; }
+
+        /// <summary>
+        /// Gets or sets the IMDb ID.
+        /// </summary>
+        [JsonPropertyName("imdbId")]
+        public string? ImdbId { get; set; }
+
+        /// <summary>
+        /// Gets or sets the TMDb ID.
+        /// </summary>
+        [JsonPropertyName("tmdbId")]
+        public string? TmdbId { get; set; }
+
+        /// <summary>
+        /// Gets or sets the TVDb ID.
+        /// </summary>
+        [JsonPropertyName("tvdbId")]
+        public string? TvdbId { get; set; }
     }
 
     /// <summary>
@@ -115,5 +133,11 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
         /// </summary>
         [JsonPropertyName("artUrl")]
         public Uri? ArtUrl { get; set; }
+
+        /// <summary>
+        /// Gets or sets the TVDb ID inherited from the parent series.
+        /// </summary>
+        [JsonPropertyName("tvdbId")]
+        public string? TvdbId { get; set; }
     }
 }

@@ -206,9 +206,8 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
             try
             {
                 using var client = _httpClientFactory.CreateClient();
-                var url = new Uri(_baseUrl, $"library/sections/{libraryId}/all?X-Plex-Token={_token}");
-                
-                // URL logging is handled at debug level internally
+                // Include external IDs (Guids) in the response for better matching
+                var url = new Uri(_baseUrl, $"library/sections/{libraryId}/all?includeGuids=1&includeExternalMedia=1&X-Plex-Token={_token}");
                 
                 var response = await client.GetAsync(url).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
@@ -228,6 +227,9 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                         Title = element.Attribute("title")?.Value ?? string.Empty,
                         Type = element.Attribute("type")?.Value ?? "movie"
                     };
+                    
+                    // Extract external IDs from Guid elements
+                    ExtractExternalIds(element, item);
                     
                     // Set thumbnail URL if available
                     string? thumbPath = element.Attribute("thumb")?.Value;
@@ -274,6 +276,9 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                         Title = element.Attribute("title")?.Value ?? string.Empty,
                         Type = element.Attribute("type")?.Value ?? "show"
                     };
+                    
+                    // Extract external IDs from Guid elements
+                    ExtractExternalIds(element, item);
                     
                     // Set thumbnail URL if available
                     string? thumbPath = element.Attribute("thumb")?.Value;
@@ -362,6 +367,20 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                 {
                     seriesTitle = doc.Root?.Attribute("grandparentTitle")?.Value ?? string.Empty;
                 }
+                
+                // Extract series external IDs - these will be inherited by all seasons
+                string? seriesTvdbId = null;
+                var rootGuidElements = doc.Root?.Descendants("Guid").ToList() ?? new List<XElement>();
+                foreach (var guid in rootGuidElements)
+                {
+                    var id = guid.Attribute("id")?.Value;
+                    if (!string.IsNullOrEmpty(id) && id.StartsWith("tvdb://", StringComparison.OrdinalIgnoreCase))
+                    {
+                        seriesTvdbId = id.Substring(7); // Remove "tvdb://" prefix
+                        _logger.LogDebug("Found TVDb ID for series '{0}': {1}", seriesTitle, seriesTvdbId);
+                        break;
+                    }
+                }
 
                 // Look for Directory elements (seasons)
                 var seasonElements = doc.Descendants("Directory").ToList();
@@ -382,7 +401,8 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                             Title = element.Attribute("title")?.Value ?? string.Empty,
                             Index = seasonIndex,
                             SeriesId = seriesId,
-                            SeriesTitle = seriesTitle
+                            SeriesTitle = seriesTitle,
+                            TvdbId = seriesTvdbId // Inherit from parent series
                         };
 
                         // Set thumbnail URL if available
@@ -509,6 +529,9 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                                 Type = element.Attribute("type")?.Value ?? "movie"
                             };
                             
+                            // Extract external IDs from Guid elements
+                            ExtractExternalIds(element, item);
+                            
                             // Set thumbnail URL if available
                             string? thumbPath = element.Attribute("thumb")?.Value;
                             if (!string.IsNullOrEmpty(thumbPath))
@@ -554,6 +577,9 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                                 Title = element.Attribute("title")?.Value ?? string.Empty,
                                 Type = element.Attribute("type")?.Value ?? "show"
                             };
+                            
+                            // Extract external IDs from Guid elements
+                            ExtractExternalIds(element, item);
                             
                             // Set thumbnail URL if available
                             string? thumbPath = element.Attribute("thumb")?.Value;
@@ -642,6 +668,74 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
             }
             
             return items;
+        }
+        
+        /// <summary>
+        /// Extracts external IDs from Plex XML element.
+        /// </summary>
+        /// <param name="element">The XML element containing the item data.</param>
+        /// <param name="item">The PlexItem to populate with external IDs.</param>
+        private void ExtractExternalIds(XElement element, PlexItem item)
+        {
+            _logger.LogDebug("Extracting external IDs for '{0}'", item.Title);
+            
+            // Log the element structure for debugging
+            _logger.LogDebug("Element name: {0}, has {1} attributes", element.Name.LocalName, element.Attributes().Count());
+            
+            // Log first few attributes
+            foreach (var attr in element.Attributes().Take(5))
+            {
+                _logger.LogDebug("  Attribute: {0} = {1}", attr.Name.LocalName, attr.Value);
+            }
+            
+            // Check if we need to look at a different level - Plex might put Guid as direct children
+            var guidElements = element.Elements("Guid").ToList();
+            if (guidElements.Count == 0)
+            {
+                _logger.LogDebug("No direct Guid children found, searching descendants...");
+                guidElements = element.Descendants("Guid").ToList();
+            }
+            
+            _logger.LogDebug("Found {0} Guid elements for '{1}'", guidElements.Count, item.Title);
+            
+            foreach (var guid in guidElements)
+            {
+                var id = guid.Attribute("id")?.Value;
+                if (string.IsNullOrEmpty(id))
+                {
+                    _logger.LogWarning("Found Guid element with empty id attribute for '{0}'", item.Title);
+                    continue;
+                }
+                
+                _logger.LogDebug("Processing Guid: '{0}' for '{1}'", id, item.Title);
+                
+                // Parse IMDb ID (format: imdb://tt1234567)
+                if (id.StartsWith("imdb://", StringComparison.OrdinalIgnoreCase))
+                {
+                    item.ImdbId = id.Substring(7); // Remove "imdb://" prefix
+                    _logger.LogDebug("Extracted IMDb ID: '{0}' for '{1}'", item.ImdbId, item.Title);
+                }
+                // Parse TMDb ID (format: tmdb://12345)
+                else if (id.StartsWith("tmdb://", StringComparison.OrdinalIgnoreCase))
+                {
+                    item.TmdbId = id.Substring(7); // Remove "tmdb://" prefix
+                    _logger.LogDebug("Extracted TMDb ID: '{0}' for '{1}'", item.TmdbId, item.Title);
+                }
+                // Parse TVDb ID (format: tvdb://12345)
+                else if (id.StartsWith("tvdb://", StringComparison.OrdinalIgnoreCase))
+                {
+                    item.TvdbId = id.Substring(7); // Remove "tvdb://" prefix
+                    _logger.LogDebug("Extracted TVDb ID: '{0}' for '{1}'", item.TvdbId, item.Title);
+                }
+                else
+                {
+                    _logger.LogDebug("Unknown Guid format: '{0}' for '{1}'", id, item.Title);
+                }
+            }
+            
+            // Log summary of external IDs found
+            _logger.LogDebug("External IDs extracted for '{0}': IMDb={1}, TMDb={2}, TVDb={3}", 
+                item.Title, item.ImdbId ?? "null", item.TmdbId ?? "null", item.TvdbId ?? "null");
         }
     }
 }
