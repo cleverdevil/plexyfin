@@ -9,6 +9,14 @@
     "category": "Metadata",
     "versions": [
       {
+        "version": "0.5.3.1",
+        "changelog": "- Fix scheduled sync logic to run when any sync tasks are enabled (not just collections)",
+        "targetAbi": "10.9.9.0",
+        "sourceUrl": "https://github.com/cleverdevil/plexyfin/releases/download/v0.5.3.1/Plexyfin_0.5.3.1.zip",
+        "checksum": "a4ccd00673e954ad82bad2edeb1fc823",
+        "timestamp": "2025-05-31T09:00:00Z"
+      },
+      {
         "version": "0.5.3.0",
         "changelog": "- Fixed scheduled sync not working when collection sync is disabled (issue #6)\n- Added notification to restart Jellyfin when scheduled sync settings change\n- Improved scheduled sync configuration UI with helpful instructions\n- Use external IDs for more reliable Plex-Jellyfin matching (issue #7)\n- Removed unused Jellyfin Base URL configuration option\n- Fixed scheduled sync note visibility in dark themes",
         "targetAbi": "10.9.9.0",

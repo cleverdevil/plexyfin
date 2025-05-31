@@ -8,9 +8,6 @@
   "owner": "plexyfin",
   "category": "General",
   "targetAbi": "10.9.9.0",
-  "changelog": "- Feature 1
-- Feature 2
-- Bug fix 1
-- Improvement 1",
+  "changelog": "- Fix scheduled sync logic to run when any sync tasks are enabled (not just collections)",
   "imageUrl": "https://raw.githubusercontent.com/plexyfin/plexyfin/main/plexyfin.png"
 }
