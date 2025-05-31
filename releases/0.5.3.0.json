@@ -8,6 +8,6 @@
   "owner": "plexyfin",
   "category": "General",
   "targetAbi": "10.9.9.0",
-  "changelog": "- Feature 1\n- Feature 2\n- Bug fix 1\n- Improvement 1",
+  "changelog": "- Fixed scheduled sync not working when collection sync is disabled (issue #6)\n- Added notification to restart Jellyfin when scheduled sync settings change\n- Improved scheduled sync configuration UI with helpful instructions\n- Use external IDs for more reliable Plex-Jellyfin matching (issue #7)\n- Removed unused Jellyfin Base URL configuration option\n- Fixed scheduled sync note visibility in dark themes",
   "imageUrl": "https://raw.githubusercontent.com/plexyfin/plexyfin/main/plexyfin.png"
 }
