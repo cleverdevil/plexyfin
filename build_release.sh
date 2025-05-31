@@ -67,7 +67,7 @@ PLUGIN_OVERVIEW=$(grep -o '"overview": "[^"]*"' "$RELEASE_FILE" | cut -d'"' -f4)
 PLUGIN_OWNER=$(grep -o '"owner": "[^"]*"' "$RELEASE_FILE" | cut -d'"' -f4)
 PLUGIN_CATEGORY=$(grep -o '"category": "[^"]*"' "$RELEASE_FILE" | cut -d'"' -f4)
 TARGET_ABI=$(grep -o '"targetAbi": "[^"]*"' "$RELEASE_FILE" | cut -d'"' -f4)
-CHANGELOG=$(grep -o '"changelog": "[^"]*"' "$RELEASE_FILE" | cut -d'"' -f4 | sed 's/\\n/\n/g')
+CHANGELOG=$(grep -o '"changelog": "[^"]*"' "$RELEASE_FILE" | cut -d'"' -f4)
 
 # Update meta.json file
 echo "Updating meta.json..."

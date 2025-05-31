@@ -13,7 +13,7 @@
         "changelog": "- Fix scheduled sync logic to run when any sync tasks are enabled (not just collections)",
         "targetAbi": "10.9.9.0",
         "sourceUrl": "https://github.com/cleverdevil/plexyfin/releases/download/v0.5.3.1/Plexyfin_0.5.3.1.zip",
-        "checksum": "a4ccd00673e954ad82bad2edeb1fc823",
+        "checksum": "d21b2efa520b57b23811ba809fbc480d",
         "timestamp": "2025-05-31T09:00:00Z"
       },
       {
