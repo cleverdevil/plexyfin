@@ -8,9 +8,6 @@
   "owner": "plexyfin",
   "category": "General",
   "targetAbi": "10.9.9.0",
-  "changelog": "- Feature 1
-- Feature 2
-- Bug fix 1
-- Improvement 1",
+  "changelog": "- Feature 1\n- Feature 2\n- Bug fix 1\n- Improvement 1",
   "imageUrl": "https://raw.githubusercontent.com/plexyfin/plexyfin/main/plexyfin.png"
 }

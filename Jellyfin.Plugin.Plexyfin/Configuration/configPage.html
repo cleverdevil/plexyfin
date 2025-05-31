@@ -160,17 +160,6 @@
                         </div>
 
                         <!-- MaxUrlPatternAttempts setting removed as it's no longer needed -->
-                        
-                        <div class="inputContainer">
-                            <label for="JellyfinBaseUrl">Jellyfin Base URL:</label>
-                            <input id="JellyfinBaseUrl" name="JellyfinBaseUrl" type="text"
-                                   placeholder="http://localhost:8096" />
-                            <div class="fieldDescription" style="font-size: 90%; margin-bottom:.15px;">
-                                The base URL used for API operations (including collection deletion).
-                                Only change this if your Jellyfin server is accessed through a custom URL.
-                                For example: http://jellyfin:8096 or https://jellyfin.example.com
-                            </div>
-                        </div>
                     </div>
 
                     <div class="verticalSection">
@@ -821,7 +810,6 @@
                     config.SyncItemArtwork = document.querySelector('#SyncItemArtwork').checked;
                     config.EnableScheduledSync = document.querySelector('#EnableScheduledSync').checked;
                     config.EnableDebugMode = document.querySelector('#EnableDebugMode').checked;
-                    config.JellyfinBaseUrl = document.querySelector('#JellyfinBaseUrl').value || '';
 
                     // Parse the sync interval with validation
                     var syncInterval = parseInt(document.querySelector('#SyncIntervalHours').value);
@@ -831,8 +819,6 @@
                         syncInterval = 168; // Cap at 168 hours (1 week)
                     }
                     config.SyncIntervalHours = syncInterval;
-
-                    // MaxUrlPatternAttempts setting removed as it's no longer needed
 
                     // Make sure selected libraries are included
                     config.SelectedLibraries = PlexyfinConfig.selectedLibraryIds;
@@ -874,7 +860,6 @@
                     document.querySelector('#EnableScheduledSync').checked = config.EnableScheduledSync;
                     document.querySelector('#SyncIntervalHours').value = config.SyncIntervalHours || 24;
                     document.querySelector('#EnableDebugMode').checked = config.EnableDebugMode || false;
-                    document.querySelector('#JellyfinBaseUrl').value = config.JellyfinBaseUrl || '';
                     // MaxUrlPatternAttempts setting removed as it's no longer needed
 
                     // Store selected libraries
