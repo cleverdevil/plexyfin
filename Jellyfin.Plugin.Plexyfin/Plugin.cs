@@ -85,7 +85,7 @@ namespace Jellyfin.Plugin.Plexyfin
 
             // Check if sync is enabled in config
             var config = Plugin.Instance.Configuration;
-            if (!config.EnableScheduledSync || !config.SyncCollections)
+            if (!config.EnableScheduledSync || (!config.SyncCollections && !config.SyncItemArtwork))
             {
                 _logger.LogSkippedNotEnabled();
                 progress.Report(100);
