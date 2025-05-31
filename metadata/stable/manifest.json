@@ -9,6 +9,14 @@
     "category": "Metadata",
     "versions": [
       {
+        "version": "0.5.3.0",
+        "changelog": "- Fixed scheduled sync not working when collection sync is disabled (issue #6)\n- Added notification to restart Jellyfin when scheduled sync settings change\n- Improved scheduled sync configuration UI with helpful instructions\n- Use external IDs for more reliable Plex-Jellyfin matching (issue #7)\n- Removed unused Jellyfin Base URL configuration option\n- Fixed scheduled sync note visibility in dark themes",
+        "targetAbi": "10.9.9.0",
+        "sourceUrl": "https://github.com/cleverdevil/plexyfin/releases/download/v0.5.3.0/Plexyfin_0.5.3.0.zip",
+        "checksum": "2da3bbc1a56687c815ff69902f21e0ff",
+        "timestamp": "2025-05-31T01:38:00Z"
+      },
+      {
         "version": "0.5.2.0",
         "changelog": "- Add image clearing before saving during sync\n- Clear all Primary and Backdrop images before saving new ones\n- Add robust error handling for file operations\n- Add warning messages about image deletion to UI and docs\n- Remove the test artwork functionality",
         "targetAbi": "10.9.9.0",
