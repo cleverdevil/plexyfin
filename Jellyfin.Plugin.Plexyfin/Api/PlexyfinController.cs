@@ -31,6 +31,17 @@ namespace Jellyfin.Plugin.Plexyfin.Api
     /// <summary>
     /// Provides fast lookup of Jellyfin items by external IDs.
     /// </summary>
+    /// <summary>
+    /// Represents a collection that may span multiple Plex libraries (e.g., mixed movies and TV shows).
+    /// </summary>
+    internal class MergedCollection
+    {
+        public string Title { get; set; } = string.Empty;
+        public string SortTitle { get; set; } = string.Empty;
+        public string Summary { get; set; } = string.Empty;
+        public List<PlexCollection> Collections { get; set; } = new List<PlexCollection>();
+    }
+
     internal class JellyfinItemIndex
     {
         // Changed to support multiple items per external ID (for multi-version scenarios)
@@ -606,244 +617,270 @@ namespace Jellyfin.Plugin.Plexyfin.Api
 
             try
             {
-                // Track progress metrics
+                // Step 1: Collect all collections from all libraries and group by name
+                _logger.LogInformation("Collecting collections from all libraries to handle mixed media types...");
+                var allCollectionsByName = new Dictionary<string, MergedCollection>(StringComparer.OrdinalIgnoreCase);
+                
                 int totalLibraries = selectedLibraries.Count;
                 int processedLibraries = 0;
 
-                // Get collections from Plex
                 foreach (var libraryId in selectedLibraries)
                 {
                     processedLibraries++;
 
                     if (syncStatus != null)
                     {
-                        int libraryProgress = processedLibraries * 100 / totalLibraries;
-                        // Scale the progress to be between 20-50% of the overall sync
-                        int scaledProgress = 20 + (libraryProgress * 30 / 100);
+                        int libraryProgress = processedLibraries * 50 / totalLibraries;
+                        // Scale the progress to be between 20-35% of the overall sync
+                        int scaledProgress = 20 + (libraryProgress * 15 / 100);
                         syncStatus.Progress = scaledProgress;
-                        syncStatus.Message = $"Processing library {processedLibraries} of {totalLibraries}...";
+                        syncStatus.Message = $"Collecting collections from library {processedLibraries} of {totalLibraries}...";
                     }
 
                     _logger.LogProcessingLibrary(libraryId);
                     var collections = await plexClient.GetCollections(libraryId).ConfigureAwait(false);
                     _logger.LogFoundCollections(libraryId, collections.Count);
 
-                    // Track collection progress within this library
-                    int totalCollections = collections.Count;
-                    int processedCollections = 0;
-
+                    // Group collections by name and merge items from multiple libraries
                     foreach (var collection in collections)
                     {
-                        processedCollections++;
-
-                        if (syncStatus != null && totalCollections > 0)
+                        if (!allCollectionsByName.ContainsKey(collection.Title))
                         {
-                            // Update the detailed progress message
-                            syncStatus.Message = $"Processing library {processedLibraries} of {totalLibraries}: " +
-                                               $"Collection {processedCollections} of {totalCollections} ({collection.Title})";
-                        }
-
-                        _logger.LogProcessingCollection(collection.Title);
-
-                        try
-                        {
-                            // Check if collection already exists in Jellyfin
-                            var existingCollections = GetItems(new MediaBrowser.Controller.Entities.InternalItemsQuery
+                            allCollectionsByName[collection.Title] = new MergedCollection
                             {
-                                IncludeItemTypes = new[] { BaseItemKind.BoxSet }
-                            }).Where(c => c.Name.Equals(collection.Title, StringComparison.OrdinalIgnoreCase));
+                                Title = collection.Title,
+                                SortTitle = collection.SortTitle,
+                                Summary = collection.Summary,
+                                Collections = new List<PlexCollection>()
+                            };
+                        }
+                        
+                        allCollectionsByName[collection.Title].Collections.Add(collection);
+                        _logger.LogDebug("Added collection '{0}' from library {1} to merged collection", collection.Title, libraryId);
+                    }
+                }
 
-                            var existingCollection = existingCollections.FirstOrDefault();
+                _logger.LogInformation("Found {0} unique collections across all libraries", allCollectionsByName.Count);
 
-                            // Get collection items from Plex
+                // Step 2: Delete ALL existing collections first (to avoid clobbering during recreation)
+                if (!dryRun)
+                {
+                    _logger.LogInformation("Removing all existing collections to prepare for fresh sync...");
+                    var existingCollections = GetItems(new MediaBrowser.Controller.Entities.InternalItemsQuery
+                    {
+                        IncludeItemTypes = new[] { BaseItemKind.BoxSet }
+                    });
+
+                    foreach (var collection in existingCollections)
+                    {
+                        // Only delete collections that are in our sync list
+                        if (allCollectionsByName.ContainsKey(collection.Name))
+                        {
+                            _logger.LogInformation($"Deleting existing collection '{collection.Name}' for fresh recreation");
+                            await DeleteCollectionFromPlexAsync(collection.Name, dryRun, syncStatus).ConfigureAwait(false);
+                        }
+                    }
+                }
+
+                // Step 3: Process each merged collection and create fresh
+                int totalCollections = allCollectionsByName.Count;
+                int processedCollections = 0;
+                
+                foreach (var kvp in allCollectionsByName)
+                {
+                    var mergedCollection = kvp.Value;
+                    processedCollections++;
+
+                    if (syncStatus != null)
+                    {
+                        int collectionProgress = processedCollections * 100 / totalCollections;
+                        // Scale the progress to be between 35-50% of the overall sync
+                        int scaledProgress = 35 + (collectionProgress * 15 / 100);
+                        syncStatus.Progress = scaledProgress;
+                        syncStatus.Message = $"Creating collection {processedCollections} of {totalCollections} ({mergedCollection.Title})";
+                    }
+
+                    _logger.LogProcessingCollection(mergedCollection.Title);
+
+                    try
+                    {
+                        // In dry run, check if collection exists to report update vs add
+                        var existingCollection = dryRun ? GetItems(new MediaBrowser.Controller.Entities.InternalItemsQuery
+                        {
+                            IncludeItemTypes = new[] { BaseItemKind.BoxSet }
+                        }).FirstOrDefault(c => c.Name.Equals(mergedCollection.Title, StringComparison.OrdinalIgnoreCase)) : null;
+
+                        // Get all items from all collections with this name across all libraries
+                        var allPlexItems = new List<PlexItem>();
+                        var matchedItemTitles = new List<string>(); // For dry run report
+                        
+                        _logger.LogInformation("Merging items from {0} collections named '{1}'", 
+                            mergedCollection.Collections.Count, mergedCollection.Title);
+
+                        foreach (var collection in mergedCollection.Collections)
+                        {
+                            // Get collection items from this specific Plex collection
                             var plexItems = await plexClient.GetCollectionItems(collection.Id).ConfigureAwait(false);
                             _logger.LogCollectionItems(plexItems.Count);
-
-                            // Find matching items in Jellyfin
-                            var jellyfinItems = new List<Guid>();
-                            var matchedItemTitles = new List<string>(); // For dry run report
-
+                            
+                            // Add unique items to the merged list (avoid duplicates across libraries)
                             foreach (var plexItem in plexItems)
                             {
-                                // Use the efficient index lookup
-                                var jellyfinItem = jellyfinIndex.FindMatch(plexItem);
-
-                                if (jellyfinItem != null)
+                                // Check if we already have this item (by external IDs)
+                                var existingItem = allPlexItems.FirstOrDefault(existing => 
+                                    (!string.IsNullOrEmpty(plexItem.ImdbId) && plexItem.ImdbId == existing.ImdbId) ||
+                                    (!string.IsNullOrEmpty(plexItem.TmdbId) && plexItem.TmdbId == existing.TmdbId) ||
+                                    (!string.IsNullOrEmpty(plexItem.TvdbId) && plexItem.TvdbId == existing.TvdbId) ||
+                                    (string.IsNullOrEmpty(plexItem.ImdbId) && string.IsNullOrEmpty(plexItem.TmdbId) && 
+                                     string.IsNullOrEmpty(plexItem.TvdbId) && plexItem.Title.Equals(existing.Title, StringComparison.OrdinalIgnoreCase)));
+                                
+                                if (existingItem == null)
                                 {
-                                    jellyfinItems.Add(jellyfinItem.Id);
-                                    matchedItemTitles.Add(plexItem.Title);
-                                    _logger.LogMatchedItem(plexItem.Title, jellyfinItem.Id);
-
-                                    // Note: We no longer process item artwork here as we now have a dedicated method
-                                    // that processes all items, including ones not in collections
+                                    allPlexItems.Add(plexItem);
+                                    _logger.LogDebug("Added '{0}' to merged collection", plexItem.Title);
                                 }
                                 else
                                 {
-                                    _logger.LogNoMatchItem(plexItem.Title);
+                                    _logger.LogDebug("Skipped duplicate item '{0}' in merged collection", plexItem.Title);
                                 }
                             }
+                        }
 
-                            // If the collection exists, in dry run mode, record it as an update
-                            // In actual sync mode, delete it and recreate it
+                        _logger.LogInformation("Merged collection '{0}' contains {1} unique items from {2} libraries", 
+                            mergedCollection.Title, allPlexItems.Count, mergedCollection.Collections.Count);
+
+                        // Find matching items in Jellyfin for all merged items
+                        var jellyfinItems = new List<Guid>();
+                        foreach (var plexItem in allPlexItems)
+                        {
+                            // Use the efficient index lookup
+                            var jellyfinItem = jellyfinIndex.FindMatch(plexItem);
+
+                            if (jellyfinItem != null)
+                            {
+                                jellyfinItems.Add(jellyfinItem.Id);
+                                matchedItemTitles.Add(plexItem.Title);
+                                _logger.LogMatchedItem(plexItem.Title, jellyfinItem.Id);
+                            }
+                            else
+                            {
+                                _logger.LogNoMatchItem(plexItem.Title);
+                            }
+                        }
+
+                        // Handle dry run reporting
+                        if (dryRun)
+                        {
+                            var syncDetail = new SyncCollectionDetail
+                            {
+                                Title = mergedCollection.Title,
+                                SortTitle = mergedCollection.SortTitle,
+                                Summary = mergedCollection.Summary,
+                                Items = matchedItemTitles
+                            };
+
                             if (existingCollection != null)
                             {
-                                if (dryRun)
-                                {
-                                    // For dry run, record as an update
-
-                                    var syncDetail = new SyncCollectionDetail
-                                    {
-                                        Title = collection.Title,
-                                        SortTitle = collection.SortTitle,
-                                        Summary = collection.Summary,
-                                        Items = matchedItemTitles
-                                    };
-
-                                    collectionsToUpdate.Add(syncDetail);
-                                    updated++;
-
-                                    // Skip the creation path in dry run mode when the collection exists
-                                    continue;
-                                }
-                                else
-                                {
-                                    // In actual sync mode, delete the existing collection
-                                    _logger.LogInformation($"Deleting existing collection '{collection.Title}' for recreation with updated information");
-
-                                    await DeleteCollectionFromPlexAsync(collection.Title, dryRun, syncStatus).ConfigureAwait(false);
-
-                                    // Set existingCollection to null to force creation path
-                                    existingCollection = null;
-                                }
+                                collectionsToUpdate.Add(syncDetail);
+                                updated++;
                             }
-
-                            // New collection creation path - at this point, existingCollection is always null
+                            else
                             {
-                                // Create new collection
-                                _logger.LogNewCollection(dryRun ? "Would create" : "Creating", collection.Title);
-
-                                // In dry run mode, just record what would be done
-                                if (dryRun)
+                                collectionsToAdd.Add(syncDetail);
+                                added++;
+                            }
+                        }
+                        else
+                        {
+                            // In actual sync mode, we've already deleted all collections, so just create fresh
+                            _logger.LogNewCollection("Creating", mergedCollection.Title);
+                            
+                            try
+                            {
+                                // Create collection using the built-in collection manager
+                                var options = new MediaBrowser.Controller.Collections.CollectionCreationOptions
                                 {
-                                    var syncDetail = new SyncCollectionDetail
-                                    {
-                                        Title = collection.Title,
-                                        SortTitle = collection.SortTitle,
-                                        Summary = collection.Summary,
-                                        Items = matchedItemTitles
-                                    };
+                                    Name = mergedCollection.Title,
+                                    ItemIdList = jellyfinItems.Select(id => id.ToString()).ToList(),
+                                    IsLocked = true
+                                };
 
-                                    collectionsToAdd.Add(syncDetail);
+                                // Create the collection
+                                var newCollectionId = await _collectionManager.CreateCollectionAsync(options).ConfigureAwait(false);
+                                _logger.LogCreatedCollection(newCollectionId.ToString());
+
+                                // Use GetItems instead of GetItemById to avoid type conversion issues
+                                var newlyCreatedCollections = GetItems(new MediaBrowser.Controller.Entities.InternalItemsQuery
+                                {
+                                    IncludeItemTypes = new[] { BaseItemKind.BoxSet },
+                                    Name = mergedCollection.Title,
+                                    Limit = 1
+                                });
+
+                                var newCollection = newlyCreatedCollections.FirstOrDefault();
+
+                                if (newCollection != null)
+                                {
+                                    // Update the collection metadata
+                                    newCollection.Overview = mergedCollection.Summary;
+
+                                    // Handle sort title specifically
+                                    if (!string.IsNullOrEmpty(mergedCollection.SortTitle))
+                                    {
+                                        _logger.LogInformation("Setting sort title '{SortTitle}' for collection '{Title}'", mergedCollection.SortTitle, mergedCollection.Title);
+                                        newCollection.ForcedSortName = mergedCollection.SortTitle;
+                                    }
+
+                                    // Save the metadata changes
+                                    await _libraryManager.UpdateItemAsync(
+                                        newCollection,
+                                        newCollection.GetParent(),
+                                        ItemUpdateType.MetadataEdit,
+                                        CancellationToken.None).ConfigureAwait(false);
+
+                                    // Process artwork if enabled - use the first collection's artwork
+                                    if (config.SyncArtwork && mergedCollection.Collections.Count > 0)
+                                    {
+                                        await ProcessCollectionArtwork(newCollection, mergedCollection.Collections[0]).ConfigureAwait(false);
+                                    }
+
+                                    added++;
+                                    _logger.LogSuccessfullyCreatedCollection(mergedCollection.Title);
                                 }
                                 else
                                 {
-                                    try
-                                    {
-                                        // Before creating a new collection, make sure no collection with this name already exists
-                                        var existingCollectionCheck = GetItems(new MediaBrowser.Controller.Entities.InternalItemsQuery
-                                        {
-                                            IncludeItemTypes = new[] { BaseItemKind.BoxSet },
-                                            Name = collection.Title
-                                        }).FirstOrDefault();
-
-                                        if (existingCollectionCheck != null)
-                                        {
-                                            // If one still exists with this name, we need to make it invisible to avoid conflicts
-                                            _logger.LogExistingCollectionConflict(collection.Title);
-                                            existingCollectionCheck.Name = $".conflict_{existingCollectionCheck.Id}_{DateTime.Now.Ticks}";
-                                            await _libraryManager.UpdateItemAsync(
-                                                existingCollectionCheck,
-                                                existingCollectionCheck.GetParent(),
-                                                ItemUpdateType.MetadataEdit,
-                                                CancellationToken.None).ConfigureAwait(false);
-                                        }
-
-                                        // Create collection using the built-in collection manager
-                                        var options = new MediaBrowser.Controller.Collections.CollectionCreationOptions
-                                        {
-                                            Name = collection.Title,
-                                            ItemIdList = jellyfinItems.Select(id => id.ToString()).ToList(),
-                                            IsLocked = true
-                                        };
-
-                                        // Create the collection
-                                        var newCollectionId = await _collectionManager.CreateCollectionAsync(options).ConfigureAwait(false);
-                                        _logger.LogCreatedCollection(newCollectionId.ToString());
-
-                                        // Use GetItems instead of GetItemById to avoid type conversion issues
-                                        var newlyCreatedCollections = GetItems(new MediaBrowser.Controller.Entities.InternalItemsQuery
-                                        {
-                                            IncludeItemTypes = new[] { BaseItemKind.BoxSet },
-                                            Name = collection.Title,
-                                            Limit = 1
-                                        });
-
-                                        var newCollection = newlyCreatedCollections.FirstOrDefault();
-
-                                        if (newCollection != null)
-                                        {
-                                            // Update the collection metadata
-                                            newCollection.Overview = collection.Summary;
-
-                                            // Handle sort title specifically
-                                            if (!string.IsNullOrEmpty(collection.SortTitle))
-                                            {
-                                                _logger.LogInformation("Setting sort title '{SortTitle}' for collection '{Title}'", collection.SortTitle, collection.Title);
-                                                newCollection.ForcedSortName = collection.SortTitle;
-                                            }
-
-                                            // Save the metadata changes
-                                            await _libraryManager.UpdateItemAsync(
-                                                newCollection,
-                                                newCollection.GetParent(),
-                                                ItemUpdateType.MetadataEdit,
-                                                CancellationToken.None).ConfigureAwait(false);
-
-                                            // Process artwork if enabled
-                                            if (config.SyncArtwork)
-                                            {
-                                                await ProcessCollectionArtwork(newCollection, collection).ConfigureAwait(false);
-                                            }
-
-                                            added++;
-                                            _logger.LogSuccessfullyCreatedCollection(collection.Title);
-                                        }
-                                        else
-                                        {
-                                            _logger.LogUnableToRetrieveCollection(collection.Title);
-                                        }
-                                    }
-                                    catch (InvalidOperationException ex)
-                                    {
-                                        _logger.LogErrorCreatingCollection(collection.Title, ex);
-                                    }
-                                    catch (ArgumentException ex)
-                                    {
-                                        _logger.LogErrorCreatingCollection(collection.Title, ex);
-                                    }
-                                    catch (IOException ex)
-                                    {
-                                        _logger.LogErrorCreatingCollection(collection.Title, ex);
-                                    }
+                                    _logger.LogUnableToRetrieveCollection(mergedCollection.Title);
                                 }
                             }
+                            catch (InvalidOperationException ex)
+                            {
+                                _logger.LogErrorCreatingCollection(mergedCollection.Title, ex);
+                            }
+                            catch (ArgumentException ex)
+                            {
+                                _logger.LogErrorCreatingCollection(mergedCollection.Title, ex);
+                            }
+                            catch (IOException ex)
+                            {
+                                _logger.LogErrorCreatingCollection(mergedCollection.Title, ex);
+                            }
                         }
-                        catch (InvalidOperationException ex)
-                        {
-                            _logger.LogErrorCollection(collection.Title, ex);
-                        }
-                        catch (ArgumentException ex)
-                        {
-                            _logger.LogErrorCollection(collection.Title, ex);
-                        }
-                        catch (HttpRequestException ex)
-                        {
-                            _logger.LogErrorCollection(collection.Title, ex);
-                        }
-                        catch (IOException ex)
-                        {
-                            _logger.LogErrorCollection(collection.Title, ex);
-                        }
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        _logger.LogErrorCollection(mergedCollection.Title, ex);
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        _logger.LogErrorCollection(mergedCollection.Title, ex);
+                    }
+                    catch (HttpRequestException ex)
+                    {
+                        _logger.LogErrorCollection(mergedCollection.Title, ex);
+                    }
+                    catch (IOException ex)
+                    {
+                        _logger.LogErrorCollection(mergedCollection.Title, ex);
                     }
                 }
 
