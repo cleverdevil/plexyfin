@@ -9,5 +9,7 @@
   "category": "General",
   "targetAbi": "10.9.9.0",
   "changelog": "- Add episode sync functionality\n- Implement parallel processing for improved performance\n- Fix scheduled sync logic to run when any sync tasks are enabled",
-  "imageUrl": "https://raw.githubusercontent.com/plexyfin/plexyfin/main/plexyfin.png"
+  "imageUrl": "https://raw.githubusercontent.com/plexyfin/plexyfin/main/plexyfin.png",
+  "sourceUrl": "https://github.com/plexyfin/plexyfin/releases/download/v0.6.1.0/Plexyfin_0.6.1.0.zip",
+  "checksum": "TBD"
 }
