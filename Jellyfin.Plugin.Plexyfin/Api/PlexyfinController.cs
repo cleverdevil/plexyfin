@@ -33,10 +33,12 @@ namespace Jellyfin.Plugin.Plexyfin.Api
     /// </summary>
     internal class JellyfinItemIndex
     {
-        private readonly Dictionary<string, BaseItem> _imdbIndex = new Dictionary<string, BaseItem>(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, BaseItem> _tmdbIndex = new Dictionary<string, BaseItem>(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, BaseItem> _tvdbIndex = new Dictionary<string, BaseItem>(StringComparer.OrdinalIgnoreCase);
+        // Changed to support multiple items per external ID (for multi-version scenarios)
+        private readonly Dictionary<string, List<BaseItem>> _imdbIndex = new Dictionary<string, List<BaseItem>>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, List<BaseItem>> _tmdbIndex = new Dictionary<string, List<BaseItem>>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, List<BaseItem>> _tvdbIndex = new Dictionary<string, List<BaseItem>>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, BaseItem> _titleIndex = new Dictionary<string, BaseItem>(StringComparer.OrdinalIgnoreCase);
+        private readonly List<BaseItem> _allItems = new List<BaseItem>();
         private readonly ILogger _logger;
 
         public JellyfinItemIndex(ILogger logger)
@@ -51,6 +53,8 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         {
             _logger.LogInformation("Building Jellyfin item index for {0} items", items.Count);
             
+            _allItems.AddRange(items);
+            
             foreach (var item in items)
             {
                 // Index by title (for fallback matching)
@@ -59,20 +63,32 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     _titleIndex[item.Name] = item;
                 }
                 
-                // Index by external IDs
+                // Index by external IDs (now supporting multiple items per ID)
                 if (item.ProviderIds.TryGetValue("Imdb", out var imdbId) && !string.IsNullOrEmpty(imdbId))
                 {
-                    _imdbIndex[imdbId] = item;
+                    if (!_imdbIndex.ContainsKey(imdbId))
+                    {
+                        _imdbIndex[imdbId] = new List<BaseItem>();
+                    }
+                    _imdbIndex[imdbId].Add(item);
                 }
                 
                 if (item.ProviderIds.TryGetValue("Tmdb", out var tmdbId) && !string.IsNullOrEmpty(tmdbId))
                 {
-                    _tmdbIndex[tmdbId] = item;
+                    if (!_tmdbIndex.ContainsKey(tmdbId))
+                    {
+                        _tmdbIndex[tmdbId] = new List<BaseItem>();
+                    }
+                    _tmdbIndex[tmdbId].Add(item);
                 }
                 
                 if (item.ProviderIds.TryGetValue("Tvdb", out var tvdbId) && !string.IsNullOrEmpty(tvdbId))
                 {
-                    _tvdbIndex[tvdbId] = item;
+                    if (!_tvdbIndex.ContainsKey(tvdbId))
+                    {
+                        _tvdbIndex[tvdbId] = new List<BaseItem>();
+                    }
+                    _tvdbIndex[tvdbId].Add(item);
                 }
             }
             
@@ -82,39 +98,93 @@ namespace Jellyfin.Plugin.Plexyfin.Api
 
         /// <summary>
         /// Finds a Jellyfin item matching the given Plex item.
+        /// Uses file path matching to disambiguate when multiple versions exist.
         /// </summary>
         public BaseItem? FindMatch(PlexItem plexItem)
         {
-            // Try IMDb ID first (most reliable for movies)
-            if (!string.IsNullOrEmpty(plexItem.ImdbId) && _imdbIndex.TryGetValue(plexItem.ImdbId, out var imdbMatch))
+            // Get all candidates by external IDs
+            var candidates = GetCandidatesByExternalIds(plexItem);
+            
+            if (candidates.Count == 0)
             {
-                _logger.LogDebug("Matched '{0}' by IMDb ID: {1}", plexItem.Title, plexItem.ImdbId);
-                return imdbMatch;
+                // No external ID matches - try title fallback
+                if (!string.IsNullOrEmpty(plexItem.Title) && _titleIndex.TryGetValue(plexItem.Title, out var titleMatch))
+                {
+                    _logger.LogDebug("Matched '{0}' by title", plexItem.Title);
+                    return titleMatch;
+                }
+                
+                _logger.LogDebug("No match found for '{0}'", plexItem.Title);
+                return null;
             }
             
-            // Try TMDb ID (good for movies and TV shows)
-            if (!string.IsNullOrEmpty(plexItem.TmdbId) && _tmdbIndex.TryGetValue(plexItem.TmdbId, out var tmdbMatch))
+            if (candidates.Count == 1)
             {
-                _logger.LogDebug("Matched '{0}' by TMDb ID: {1}", plexItem.Title, plexItem.TmdbId);
-                return tmdbMatch;
+                // Single match - no ambiguity
+                _logger.LogDebug("Matched '{0}' by external ID (single match)", plexItem.Title);
+                return candidates[0];
             }
             
-            // Try TVDb ID (primarily for TV shows)
-            if (!string.IsNullOrEmpty(plexItem.TvdbId) && _tvdbIndex.TryGetValue(plexItem.TvdbId, out var tvdbMatch))
+            // Multiple matches - use file path to disambiguate
+            if (!string.IsNullOrEmpty(plexItem.FilePath))
             {
-                _logger.LogDebug("Matched '{0}' by TVDb ID: {1}", plexItem.Title, plexItem.TvdbId);
-                return tvdbMatch;
+                var bestMatch = candidates
+                    .Select(c => new { 
+                        Item = c, 
+                        Score = PathMatcher.GetMatchingSegments(plexItem.FilePath, c.Path) 
+                    })
+                    .Where(x => x.Score >= 2)  // Require at least filename + parent folder
+                    .OrderByDescending(x => x.Score)
+                    .FirstOrDefault();
+                
+                if (bestMatch != null)
+                {
+                    _logger.LogDebug("Matched '{0}' by file path ({1} segments matched)", 
+                        plexItem.Title, bestMatch.Score);
+                    return bestMatch.Item;
+                }
             }
             
-            // Fall back to title matching
-            if (!string.IsNullOrEmpty(plexItem.Title) && _titleIndex.TryGetValue(plexItem.Title, out var titleMatch))
+            _logger.LogWarning("Multiple matches found for '{0}' but couldn't disambiguate by path", plexItem.Title);
+            // Return first match as fallback, or null based on preference
+            return candidates.FirstOrDefault();
+        }
+        
+        /// <summary>
+        /// Gets all candidate Jellyfin items that match the Plex item's external IDs.
+        /// </summary>
+        private List<BaseItem> GetCandidatesByExternalIds(PlexItem plexItem)
+        {
+            var candidates = new HashSet<BaseItem>();
+            
+            // Try IMDb ID
+            if (!string.IsNullOrEmpty(plexItem.ImdbId) && _imdbIndex.TryGetValue(plexItem.ImdbId, out var imdbMatches))
             {
-                _logger.LogDebug("Matched '{0}' by title", plexItem.Title);
-                return titleMatch;
+                foreach (var match in imdbMatches)
+                {
+                    candidates.Add(match);
+                }
             }
             
-            _logger.LogDebug("No match found for '{0}'", plexItem.Title);
-            return null;
+            // Try TMDb ID
+            if (!string.IsNullOrEmpty(plexItem.TmdbId) && _tmdbIndex.TryGetValue(plexItem.TmdbId, out var tmdbMatches))
+            {
+                foreach (var match in tmdbMatches)
+                {
+                    candidates.Add(match);
+                }
+            }
+            
+            // Try TVDb ID
+            if (!string.IsNullOrEmpty(plexItem.TvdbId) && _tvdbIndex.TryGetValue(plexItem.TvdbId, out var tvdbMatches))
+            {
+                foreach (var match in tvdbMatches)
+                {
+                    candidates.Add(match);
+                }
+            }
+            
+            return candidates.ToList();
         }
     }
 
@@ -172,6 +242,52 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         }
 
         /// <summary>
+        /// Compatibility helper method to handle API changes between Jellyfin versions.
+        /// In Jellyfin 10.10+, GetItemList was replaced with GetItemsResult.
+        /// </summary>
+        /// <param name="query">The query to execute.</param>
+        /// <returns>List of items matching the query.</returns>
+        private IReadOnlyList<BaseItem> GetItems(InternalItemsQuery query)
+        {
+            // Use reflection to check which method is available
+            var libraryManagerType = _libraryManager.GetType();
+            
+            // First try GetItemsResult (Jellyfin 10.10+)
+            var getItemsResultMethod = libraryManagerType.GetMethod("GetItemsResult");
+            if (getItemsResultMethod != null)
+            {
+                var result = getItemsResultMethod.Invoke(_libraryManager, new object[] { query });
+                if (result != null)
+                {
+                    var itemsProperty = result.GetType().GetProperty("Items");
+                    if (itemsProperty != null)
+                    {
+                        var items = itemsProperty.GetValue(result) as IReadOnlyList<BaseItem>;
+                        if (items != null)
+                        {
+                            return items;
+                        }
+                    }
+                }
+            }
+            
+            // Fall back to GetItemList (Jellyfin 10.9.x and earlier)
+            var getItemListMethod = libraryManagerType.GetMethod("GetItemList");
+            if (getItemListMethod != null)
+            {
+                var items = getItemListMethod.Invoke(_libraryManager, new object[] { query }) as IReadOnlyList<BaseItem>;
+                if (items != null)
+                {
+                    return items;
+                }
+            }
+            
+            // If neither method is found, return empty list
+            _logger.LogError("Neither GetItemsResult nor GetItemList methods found on ILibraryManager");
+            return new List<BaseItem>();
+        }
+
+        /// <summary>
         /// Internal method for syncing from Plex, used by both the API endpoint and scheduled task.
         /// </summary>
         /// <param name="dryRun">If true, changes will not be applied, only reported.</param>
@@ -211,7 +327,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             var jellyfinIndex = new JellyfinItemIndex(_logger);
             
             // Get all movies and TV series from Jellyfin
-            var allJellyfinItems = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
+            var allJellyfinItems = GetItems(new MediaBrowser.Controller.Entities.InternalItemsQuery
             {
                 IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series }
             });
@@ -423,7 +539,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         {
             try
             {
-                var collection = _libraryManager.GetItemList(new InternalItemsQuery
+                var collection = GetItems(new InternalItemsQuery
                 {
                     IncludeItemTypes = new[] { BaseItemKind.BoxSet },
                     Name = collectionName
@@ -532,7 +648,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                         try
                         {
                             // Check if collection already exists in Jellyfin
-                            var existingCollections = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
+                            var existingCollections = GetItems(new MediaBrowser.Controller.Entities.InternalItemsQuery
                             {
                                 IncludeItemTypes = new[] { BaseItemKind.BoxSet }
                             }).Where(c => c.Name.Equals(collection.Title, StringComparison.OrdinalIgnoreCase));
@@ -624,7 +740,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                     try
                                     {
                                         // Before creating a new collection, make sure no collection with this name already exists
-                                        var existingCollectionCheck = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
+                                        var existingCollectionCheck = GetItems(new MediaBrowser.Controller.Entities.InternalItemsQuery
                                         {
                                             IncludeItemTypes = new[] { BaseItemKind.BoxSet },
                                             Name = collection.Title
@@ -654,8 +770,8 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                         var newCollectionId = await _collectionManager.CreateCollectionAsync(options).ConfigureAwait(false);
                                         _logger.LogCreatedCollection(newCollectionId.ToString());
 
-                                        // Use GetItemList instead of GetItemById to avoid type conversion issues
-                                        var newlyCreatedCollections = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
+                                        // Use GetItems instead of GetItemById to avoid type conversion issues
+                                        var newlyCreatedCollections = GetItems(new MediaBrowser.Controller.Entities.InternalItemsQuery
                                         {
                                             IncludeItemTypes = new[] { BaseItemKind.BoxSet },
                                             Name = collection.Title,
@@ -1348,7 +1464,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 }
 
                 // Get all seasons from the series
-                var seasons = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
+                var seasons = GetItems(new MediaBrowser.Controller.Entities.InternalItemsQuery
                 {
                     Parent = tvSeries,
                     IncludeItemTypes = new[] { BaseItemKind.Season }
@@ -1768,6 +1884,10 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             SyncStatus? syncStatus = null)
         {
             int artworkUpdated = 0;
+            
+            // Track which Jellyfin items have already had artwork processed
+            // This prevents duplicate processing when multiple Plex versions exist
+            var processedJellyfinItems = new HashSet<Guid>();
 
             try
             {
@@ -1831,11 +1951,22 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                             {
                                 _logger.LogMatchedItem(plexItem.Title, jellyfinItem.Id);
 
-                                // Process artwork for this item
-                                if (!dryRun)
+                                // Check if we've already processed artwork for this Jellyfin item
+                                // (handles multiple Plex versions mapping to same Jellyfin item)
+                                if (processedJellyfinItems.Contains(jellyfinItem.Id))
                                 {
-                                    await ProcessItemArtwork(jellyfinItem, plexItem).ConfigureAwait(false);
-                                    artworkUpdated++;
+                                    _logger.LogDebug("Already processed artwork for Jellyfin item '{0}' (ID: {1}), skipping duplicate", 
+                                        jellyfinItem.Name, jellyfinItem.Id);
+                                }
+                                else
+                                {
+                                    // Process artwork for this item
+                                    if (!dryRun)
+                                    {
+                                        await ProcessItemArtwork(jellyfinItem, plexItem).ConfigureAwait(false);
+                                        processedJellyfinItems.Add(jellyfinItem.Id);
+                                        artworkUpdated++;
+                                    }
                                 }
                             }
                             else
@@ -1966,7 +2097,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
 
                         foreach (var plexItem in sampleItems)
                         {
-                            var matchingItems = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
+                            var matchingItems = GetItems(new MediaBrowser.Controller.Entities.InternalItemsQuery
                             {
                                 Name = plexItem.Title,
                                 IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series }

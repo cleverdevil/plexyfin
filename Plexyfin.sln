@@ -1,8 +1,10 @@
-Microsoft Visual Studio Solution File, Format Version 12.00
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Jellyfin.Plugin.Plexyfin", "Jellyfin.Plugin.Plexyfin\Jellyfin.Plugin.Plexyfin.csproj", "{B9F0C474-E9A8-4292-AE41-EB3C1542F4CD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Jellyfin.Plugin.Plexyfin.Tests", "Jellyfin.Plugin.Plexyfin.Tests\Jellyfin.Plugin.Plexyfin.Tests.csproj", "{138E7C43-2556-45F8-9596-FC49C27519F2}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -17,5 +19,9 @@ Global
 		{B9F0C474-E9A8-4292-AE41-EB3C1542F4CD}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B9F0C474-E9A8-4292-AE41-EB3C1542F4CD}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B9F0C474-E9A8-4292-AE41-EB3C1542F4CD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{138E7C43-2556-45F8-9596-FC49C27519F2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{138E7C43-2556-45F8-9596-FC49C27519F2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{138E7C43-2556-45F8-9596-FC49C27519F2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{138E7C43-2556-45F8-9596-FC49C27519F2}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

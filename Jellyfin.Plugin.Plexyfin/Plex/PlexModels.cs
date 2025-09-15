@@ -85,6 +85,13 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
         /// </summary>
         [JsonPropertyName("tvdbId")]
         public string? TvdbId { get; set; }
+
+        /// <summary>
+        /// Gets or sets the file path of the media item.
+        /// Used for matching specific versions when multiple exist.
+        /// </summary>
+        [JsonPropertyName("filePath")]
+        public string? FilePath { get; set; }
     }
 
     /// <summary>

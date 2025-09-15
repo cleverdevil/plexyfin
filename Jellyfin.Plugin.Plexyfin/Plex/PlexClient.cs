@@ -228,6 +228,14 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                         Type = element.Attribute("type")?.Value ?? "movie"
                     };
                     
+                    // Extract file path from Media/Part elements
+                    var mediaPart = element.Descendants("Part").FirstOrDefault();
+                    if (mediaPart != null)
+                    {
+                        item.FilePath = mediaPart.Attribute("file")?.Value;
+                        _logger.LogDebug("Extracted file path for '{0}': {1}", item.Title, item.FilePath);
+                    }
+                    
                     // Extract external IDs from Guid elements
                     ExtractExternalIds(element, item);
                     
@@ -528,6 +536,13 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                                 Title = element.Attribute("title")?.Value ?? string.Empty,
                                 Type = element.Attribute("type")?.Value ?? "movie"
                             };
+                            
+                            // Extract file path from Media/Part elements
+                            var mediaPart = element.Descendants("Part").FirstOrDefault();
+                            if (mediaPart != null)
+                            {
+                                item.FilePath = mediaPart.Attribute("file")?.Value;
+                            }
                             
                             // Extract external IDs from Guid elements
                             ExtractExternalIds(element, item);
