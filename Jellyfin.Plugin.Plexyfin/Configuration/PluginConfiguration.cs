@@ -21,6 +21,7 @@ namespace Jellyfin.Plugin.Plexyfin.Configuration
             SyncArtwork = true; // Default to syncing artwork
             SyncItemArtwork = false; // Default to not syncing item artwork (opt-in feature)
             EnableScheduledSync = false;
+            SyncBatchSize = 50; // Default batch size for processing
             SyncIntervalHours = 24; // Default to daily sync
             SelectedLibraries = new List<string>(); // Initialize with empty list
             EnableDebugMode = false; // Default to no debug mode
@@ -57,6 +58,11 @@ namespace Jellyfin.Plugin.Plexyfin.Configuration
         /// Gets or sets a value indicating whether to automatically sync on a schedule.
         /// </summary>
         public bool EnableScheduledSync { get; set; }
+
+        /// <summary>
+        /// Batch size for processing items during sync operations.
+        /// </summary>
+        public int SyncBatchSize { get; set; }
         
         /// <summary>
         /// Gets or sets the schedule interval in hours.

@@ -2,12 +2,12 @@
   "name": "Plexyfin",
   "id": "b9f0c474-e9a8-4292-ae41-eb3c1542f4cd",
   "guid": "b9f0c474-e9a8-4292-ae41-eb3c1542f4cd",
-  "version": "0.6.0.1",
+  "version": "0.6.1.0",
   "overview": "Plugin for Jellyfin that syncs collections and artwork from Plex to Jellyfin",
   "description": "Syncs collections, artwork, and their metadata from your Plex Media Server to Jellyfin.",
   "owner": "plexyfin",
   "category": "General",
   "targetAbi": "10.10.0.0",
-  "changelog": "- Fix compatibility with Jellyfin 10.10+ by replacing deprecated GetItemList with GetItemsResult\\n- Add support for multiple versions of media items (cross-library duplicates and same-library editions)\\n- Implement filesystem-based matching to handle different Plex/Jellyfin mount points\\n- Prevent duplicate artwork processing for multi-version items",
+  "changelog": "- Add episode sync functionality\\n- Implement parallel processing for improved performance\\n- Fix compatibility with Jellyfin 10.10+ by replacing deprecated GetItemList with GetItemsResult\\n- Add support for multiple versions of media items (cross-library duplicates and same-library editions)\\n- Implement filesystem-based matching to handle different Plex/Jellyfin mount points\\n- Prevent duplicate artwork processing for multi-version items",
   "imageUrl": "https://raw.githubusercontent.com/plexyfin/plexyfin/main/plexyfin.png"
 }

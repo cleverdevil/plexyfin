@@ -348,6 +348,113 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
         }
         
         /// <summary>
+        /// Gets episodes for a TV series from Plex.
+        /// </summary>
+        /// <param name="seriesId">The Plex series ID.</param>
+        /// <returns>A list of PlexEpisode objects.</returns>
+        public async Task<List<PlexEpisode>> GetTvSeriesEpisodes(string seriesId)
+        {
+            var episodes = new List<PlexEpisode>();
+
+            try
+            {
+                using var client = _httpClientFactory.CreateClient();
+                
+                var seasons = await GetTvSeriesSeasons(seriesId).ConfigureAwait(false);
+
+                foreach (var season in seasons)
+                {
+                    var url = new Uri(_baseUrl, $"library/metadata/{season.Id}/children?X-Plex-Token={_token}");
+
+                    var response = await client.GetAsync(url).ConfigureAwait(false);
+                    response.EnsureSuccessStatusCode();
+
+                    var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    var doc = XDocument.Parse(content);
+
+                    // Look for Directory elements (seasons)
+                    var episodeElements = doc.Descendants("Video").ToList();
+
+                    foreach (var episodeElement in episodeElements)
+                    {
+                        var episodeType = episodeElement.Attribute("type")?.Value ?? string.Empty;
+
+                        // Only process elements that are actually seasons
+                        if (episodeType.Equals("episode", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var episode = new PlexEpisode
+                            {
+                                Id = episodeElement.Attribute("ratingKey")?.Value ?? string.Empty,
+                                Title = episodeElement.Attribute("title")?.Value ?? string.Empty,
+                                Index = int.TryParse(episodeElement.Attribute("index")?.Value, out int epIndex) ? epIndex : 0,
+                                ParentIndex = season.Index,
+                                SeriesId = seriesId,
+                                SeriesTitle = season.SeriesTitle,
+                                TvdbId = season.TvdbId // Inherit from parent series
+                            };
+
+                            // Set thumbnail URL if available
+                            string? thumbPath = episodeElement.Attribute("thumb")?.Value;
+                            if (!string.IsNullOrEmpty(thumbPath))
+                            {
+                                // Append Plex token to the URL to allow authenticated access
+                                string thumbWithToken = thumbPath;
+                                if (thumbWithToken.Contains('?', StringComparison.Ordinal))
+                                {
+                                    thumbWithToken += $"&X-Plex-Token={_token}";
+                                }
+                                else
+                                {
+                                    thumbWithToken += $"?X-Plex-Token={_token}";
+                                }
+                                episode.ThumbUrl = new Uri(_baseUrl, thumbWithToken);
+                            }
+
+                            // Set art URL if available
+                            string? artPath = episodeElement.Attribute("art")?.Value;
+                            if (!string.IsNullOrEmpty(artPath))
+                            {
+                                // Append Plex token to the URL to allow authenticated access
+                                string artWithToken = artPath;
+                                if (artWithToken.Contains('?', StringComparison.Ordinal))
+                                {
+                                    artWithToken += $"&X-Plex-Token={_token}";
+                                }
+                                else
+                                {
+                                    artWithToken += $"?X-Plex-Token={_token}";
+                                }
+                                episode.ArtUrl = new Uri(_baseUrl, artWithToken);
+                            }
+
+                            episodes.Add(episode);
+                        }
+                    }
+                }
+
+                _logger.LogInformation("Found {0} episodes for TV series ID {1}", episodes.Count, seriesId);
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogError(ex, "Error getting episodes for TV series ID {0}", seriesId);
+            }
+            catch (UriFormatException ex)
+            {
+                _logger.LogError(ex, "Error with URI format when getting episodes for TV series ID {0}", seriesId);
+            }
+            catch (System.Xml.XmlException ex)
+            {
+                _logger.LogError(ex, "Error parsing XML when getting episodes for TV series ID {0}", seriesId);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Invalid operation when getting episodes for TV series ID {0}", seriesId);
+            }
+
+            return episodes;
+        }
+        
+        /// <summary>
         /// Gets seasons for a TV series from Plex.
         /// </summary>
         /// <param name="seriesId">The TV series ID.</param>
@@ -375,7 +482,7 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
                 {
                     seriesTitle = doc.Root?.Attribute("grandparentTitle")?.Value ?? string.Empty;
                 }
-                
+
                 // Extract series external IDs - these will be inherited by all seasons
                 string? seriesTvdbId = null;
                 var rootGuidElements = doc.Root?.Descendants("Guid").ToList() ?? new List<XElement>();

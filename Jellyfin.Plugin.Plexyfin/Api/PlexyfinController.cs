@@ -1224,6 +1224,107 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         }
 
         /// <summary>
+        /// Processes artwork for an individual episode.
+        /// </summary>
+        /// <param name="series">The Jellyfin TV series.</param>
+        /// <param name="plexEpisode">The Plex episode.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        private async Task<bool> ProcessEpisodeArtwork(BaseItem series, PlexEpisode plexEpisode)
+        {
+            if (series == null || plexEpisode == null)
+            {
+                _logger.LogError("Cannot process episode artwork: Series or PlexEpisode is null");
+                return false;
+            }
+
+            // Find the matching episode in Jellyfin
+            var jellyEpisode = FindJellyfinEpisode(series, plexEpisode.ParentIndex, plexEpisode.Index);
+            if (jellyEpisode == null)
+            {
+                _logger.LogError($"Cannot find Jellyfin episode S{plexEpisode.ParentIndex}E{plexEpisode.Index} for series {series.Name}");
+                return false;
+            }
+
+            _logger.LogInformation($"Processing artwork for episode S{plexEpisode.ParentIndex}E{plexEpisode.Index} of {series.Name}");
+
+            using var httpClient = _httpClientFactory.CreateClient();
+            httpClient.DefaultRequestHeaders.Add("User-Agent", "Jellyfin-Plexyfin-Plugin");
+            bool hasChanges = false;
+
+            try
+            {
+                // Process episode thumbnail
+                if (plexEpisode.ThumbUrl != null)
+                {
+                    // Clear existing Primary images before saving the new one
+                    await ClearItemImages(jellyEpisode, ImageType.Primary).ConfigureAwait(false);
+
+                    var response = await httpClient.GetAsync(plexEpisode.ThumbUrl).ConfigureAwait(false);
+                    response.EnsureSuccessStatusCode();
+
+                    string mimeType = response.Content.Headers.ContentType?.MediaType ?? GetMimeTypeFromUrl(plexEpisode.ThumbUrl.ToString());
+
+                    byte[] imageData;
+                    using (var imageStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                    {
+                        using var memStream = new MemoryStream();
+                        await imageStream.CopyToAsync(memStream).ConfigureAwait(false);
+                        imageData = memStream.ToArray();
+                    }
+
+                    await Task.Delay(100).ConfigureAwait(false);
+
+                    if (_providerManager != null)
+                    {
+                        await _libraryManager.UpdateItemAsync(
+                            jellyEpisode,
+                            jellyEpisode.GetParent(),
+                            ItemUpdateType.ImageUpdate,
+                            CancellationToken.None).ConfigureAwait(false);
+
+                        using var saveStream = new MemoryStream(imageData);
+                        try
+                        {
+                            await _providerManager.SaveImage(
+                                jellyEpisode,
+                                saveStream,
+                                mimeType,
+                                ImageType.Primary,
+                                null,
+                                CancellationToken.None).ConfigureAwait(false);
+                            hasChanges = true;
+                            _logger.LogInformation($"Saved episode thumbnail for {jellyEpisode.Name}");
+                        }
+                        catch (IOException ex)
+                        {
+                            _logger.LogError(ex, $"Failed to save episode thumbnail for {jellyEpisode.Name}");
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogWarning($"ProviderManager is null, cannot save episode artwork for {jellyEpisode.Name}");
+                    }
+                }
+
+                if (hasChanges)
+                    {
+                        await _libraryManager.UpdateItemAsync(
+                            jellyEpisode,
+                            jellyEpisode.GetParent(),
+                            ItemUpdateType.ImageUpdate,
+                            CancellationToken.None).ConfigureAwait(false);
+                        _logger.LogInformation($"Updated Jellyfin repo with episode images for {jellyEpisode.Name}");
+                    }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error processing episode artwork for {jellyEpisode?.Name}");
+            }
+
+            return hasChanges;
+        }
+
+        /// <summary>
         /// Processes artwork for a TV show season.
         /// </summary>
         /// <param name="series">The Jellyfin TV series.</param>
@@ -1447,6 +1548,54 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         }
 
         /// <summary>
+        /// Finds a Jellyfin episode by season and episode index.
+        /// </summary>
+        /// <param name="series">The Jellyfin TV series.</param>
+        /// <param name="seasonIndex">The season index.</param>
+        /// <param name="episodeIndex">The episode index.</param>
+        /// <returns>The matching Jellyfin episode, or null if not found.</returns>
+        private BaseItem? FindJellyfinEpisode(BaseItem series, int seasonIndex, int episodeIndex)
+        {
+            try
+            {
+                if (!(series is MediaBrowser.Controller.Entities.TV.Series tvSeries))
+                {
+                    return null;
+                }
+                var season = this.FindJellyfinSeason(series, seasonIndex);
+                if (season == null)
+                {
+                    return null;
+                }
+                if (season is MediaBrowser.Controller.Entities.TV.Season jellySeason)
+                {
+                    var episodes = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
+                    {
+                        Parent = jellySeason,
+                        IncludeItemTypes = new[] { BaseItemKind.Episode }
+                    });
+                    foreach (var episode in episodes)
+                    {
+                        if (episode is MediaBrowser.Controller.Entities.TV.Episode jellyEpisode)
+                        {
+                            int jellyEpisodeNumber = jellyEpisode.IndexNumber.HasValue ? (int)jellyEpisode.IndexNumber.Value : -1;
+                            if (jellyEpisodeNumber == episodeIndex)
+                            {
+                                return episode;
+                            }
+                        }
+                    }
+                }
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error finding Jellyfin episode S{seasonIndex}E{episodeIndex} in series {series.Name}");
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Finds a season in a Jellyfin TV series by its index.
         /// </summary>
         /// <param name="series">The TV series.</param>
@@ -1521,7 +1670,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 bool isTvSeries = jellyfinItem is MediaBrowser.Controller.Entities.TV.Series;
                 if (isTvSeries && plexItem.Type.Equals("show", StringComparison.OrdinalIgnoreCase))
                 {
-                    _logger.LogInformation("Item {0} is a TV series, processing seasons", jellyfinItem.Name);
+                    _logger.LogInformation("Item {0} is a TV series, processing seasons and episodes", jellyfinItem.Name);
 
                     // Process the main series artwork first
                     int artworkCount = await ProcessMainItemArtwork(jellyfinItem, plexItem).ConfigureAwait(false);
@@ -1530,6 +1679,10 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     // Get and process seasons for TV series
                     var plexSeasons = await GetAndProcessTvSeriesSeasons(jellyfinItem, plexItem.Id).ConfigureAwait(false);
                     _logger.LogInformation("Processed {0} seasons for TV series {1}", plexSeasons, jellyfinItem.Name);
+
+                    // Get and process episodes for TV series
+                    var plexEpisodes = await GetAndProcessTvSeriesEpisodes(jellyfinItem, plexItem.Id).ConfigureAwait(false);
+                    _logger.LogInformation("Processed {0} episodes for TV series {1}", plexEpisodes, jellyfinItem.Name);
                 }
                 else
                 {
@@ -1767,6 +1920,44 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         }
 
         /// <summary>
+        /// Gets and processes TV series episodes from Plex.
+        /// </summary>
+        /// <param name="series">The Jellyfin TV series.</param>
+        /// <param name="plexSeriesId">The Plex series ID.</param>
+        /// <returns>The number of episodes processed.</returns>
+        private async Task<int> GetAndProcessTvSeriesEpisodes(BaseItem series, string plexSeriesId)
+        {
+            int processedEpisodes = 0;
+            try
+            {
+                // Check if the item is a Series
+                if (!(series is MediaBrowser.Controller.Entities.TV.Series tvSeries))
+                {
+                    _logger.LogError("Cannot process seasons: Item is not a TV series");
+                    return 0;
+                }
+
+                // Create a Plex client instance
+                var config = Plugin.Instance!.Configuration;
+                var plexServerUri = string.IsNullOrEmpty(config.PlexServerUrl)
+                    ? new Uri("http://localhost")
+                    : new Uri(config.PlexServerUrl ?? "http://localhost");
+                var plexClient = new PlexClient(_httpClientFactory, _logger, plexServerUri, config.PlexApiToken, config);
+
+                // Get episodes from Plex
+                var plexEpisodes = await plexClient.GetTvSeriesEpisodes(plexSeriesId).ConfigureAwait(false);
+                var tasks = plexEpisodes.ToList().Select(ep => ProcessEpisodeArtwork(series, ep)).ToList();
+                var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+                processedEpisodes += results.Count(success => success);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error processing episodes for series {series.Name}");
+            }
+            return processedEpisodes;
+        }
+
+        /// <summary>
         /// Gets and processes TV series seasons from Plex.
         /// </summary>
         /// <param name="series">The Jellyfin TV series.</param>
@@ -1794,18 +1985,10 @@ namespace Jellyfin.Plugin.Plexyfin.Api
 
                 // Get seasons from Plex
                 var plexSeasons = await plexClient.GetTvSeriesSeasons(plexSeriesId).ConfigureAwait(false);
-
                 _logger.LogInformation("Found {0} seasons for TV series {1}", plexSeasons.Count, series.Name);
-
-                // Process each season
-                foreach (var plexSeason in plexSeasons)
-                {
-                    bool seasonProcessed = await ProcessSeasonArtwork(series, plexSeason).ConfigureAwait(false);
-                    if (seasonProcessed)
-                    {
-                        processedSeasons++;
-                    }
-                }
+                var tasks = plexSeasons.ToList().Select(plexSeason => ProcessSeasonArtwork(series, plexSeason)).ToList();
+                var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+                processedSeasons += results.Count(success => success);
 
                 _logger.LogInformation("Processed artwork for {0} seasons of {1}", processedSeasons, series.Name);
             }
@@ -1929,24 +2112,21 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     int totalItems = plexItems.Count;
                     int processedItems = 0;
 
-                    foreach (var plexItem in plexItems)
+                    // True parallel processing with fixed concurrency using SemaphoreSlim
+                    using (var semaphore = new SemaphoreSlim(config.SyncBatchSize > 0 ? config.SyncBatchSize : 5))
                     {
-                        processedItems++;
-
-                        if (syncStatus != null && totalItems > 0 && processedItems % 10 == 0)
+                        var tasks = new List<Task>();
+                        foreach (var plexItem in plexItems)
                         {
-                            // Update progress every 10 items to avoid excessive UI updates
-                            syncStatus.Message = $"Processing library {processedLibraries} of {totalLibraries}: " +
-                                               $"Item {processedItems} of {totalItems} ({plexItem.Title})";
-                        }
-
-                        _logger.LogProcessingItemArtwork(plexItem.Title);
-
-                        try
-                        {
-                            // Use the efficient index lookup
+                            await semaphore.WaitAsync().ConfigureAwait(false);
+                            processedItems++;
+                            if (syncStatus != null && totalItems > 0 && processedItems % 10 == 0)
+                            {
+                                syncStatus.Message = $"Processing library {processedLibraries} of {totalLibraries}: " +
+                                                   $"Item {processedItems} of {totalItems} ({plexItem.Title})";
+                            }
+                            _logger.LogProcessingItemArtwork(plexItem.Title);
                             var jellyfinItem = jellyfinIndex.FindMatch(plexItem);
-
                             if (jellyfinItem != null)
                             {
                                 _logger.LogMatchedItem(plexItem.Title, jellyfinItem.Id);
@@ -1957,39 +2137,47 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                 {
                                     _logger.LogDebug("Already processed artwork for Jellyfin item '{0}' (ID: {1}), skipping duplicate", 
                                         jellyfinItem.Name, jellyfinItem.Id);
+                                    semaphore.Release();
                                 }
                                 else
                                 {
                                     // Process artwork for this item
                                     if (!dryRun)
                                     {
-                                        await ProcessItemArtwork(jellyfinItem, plexItem).ConfigureAwait(false);
-                                        processedJellyfinItems.Add(jellyfinItem.Id);
-                                        artworkUpdated++;
+                                        var task = Task.Run(async () => {
+                                            try
+                                            {
+                                                await ProcessItemArtwork(jellyfinItem, plexItem).ConfigureAwait(false);
+                                                lock (processedJellyfinItems)
+                                                {
+                                                    processedJellyfinItems.Add(jellyfinItem.Id);
+                                                }
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                _logger.LogErrorProcessingArtwork("item", plexItem.Title, ex);
+                                            }
+                                            finally
+                                            {
+                                                semaphore.Release();
+                                            }
+                                        });
+                                        tasks.Add(task);
                                     }
+                                    else
+                                    {
+                                        semaphore.Release();
+                                    }
+                                    artworkUpdated++;
                                 }
                             }
                             else
                             {
                                 _logger.LogNoMatchItem(plexItem.Title);
+                                semaphore.Release();
                             }
                         }
-                        catch (HttpRequestException ex)
-                        {
-                            _logger.LogErrorProcessingArtwork("item", plexItem.Title, ex);
-                        }
-                        catch (IOException ex)
-                        {
-                            _logger.LogErrorProcessingArtwork("item", plexItem.Title, ex);
-                        }
-                        catch (InvalidOperationException ex)
-                        {
-                            _logger.LogErrorProcessingArtwork("item", plexItem.Title, ex);
-                        }
-                        catch (ArgumentException ex)
-                        {
-                            _logger.LogErrorProcessingArtwork("item", plexItem.Title, ex);
-                        }
+                        await Task.WhenAll(tasks).ConfigureAwait(false);
                     }
 
                     _logger.LogLibraryArtworkComplete(libraryId, artworkUpdated);

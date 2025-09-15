@@ -9,6 +9,14 @@
     "category": "Metadata",
     "versions": [
       {
+        "version": "0.6.1.0",
+        "changelog": "- Add episode sync functionality\n- Implement parallel processing for improved performance\n- Fix scheduled sync logic to run when any sync tasks are enabled",
+        "targetAbi": "10.9.9.0",
+        "sourceUrl": "https://github.com/cleverdevil/plexyfin/releases/download/v0.6.1.0/Plexyfin_0.6.1.0.zip",
+        "checksum": "6b3864e83ea26d4e81ca0aec055594db",
+        "timestamp": "2025-09-15T20:10:21Z"
+      },
+      {
         "version": "0.5.3.1",
         "changelog": "- Fix scheduled sync logic to run when any sync tasks are enabled (not just collections)",
         "targetAbi": "10.9.9.0",

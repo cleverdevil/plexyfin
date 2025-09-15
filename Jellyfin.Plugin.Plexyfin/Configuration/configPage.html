@@ -15,7 +15,7 @@
             <div class="content-primary">
                 <div class="verticalSection">
                     <div class="sectionTitleContainer">
-                        <h2 class="sectionTitle">Plex Server Configuration</h2>
+                        <h2 class="sectionTitle">Plex Server Configuration DEV</h2>
                     </div>
                     <div class="fieldDescription" style="font-size: 90%; margin-bottom: 15px;">
                         Configure the connection to your Plex Media Server. This is required for syncing collections and other data.
@@ -73,6 +73,13 @@
                     <div class="verticalSection">
                         <h3 class="sectionTitle">Sync Options</h3>
 
+                        <div class="inputContainer">
+                            <label for="SyncBatchSize">Sync batch size:</label>
+                            <input id="SyncBatchSize" name="SyncBatchSize" type="number" min="1" max="500" step="1" required />
+                            <div class="fieldDescription" style="font-size: 90%; margin-bottom: 15px;">
+                                Number of items to process in each batch during sync operations. Adjust based on your server's performance and load.
+                            </div>
+                        </div>
                         <div class="checkboxContainer">
                             <label>
                                 <input type="checkbox" id="SyncCollections" />
@@ -806,6 +813,7 @@
                     config.SyncCollections = document.querySelector('#SyncCollections').checked;
                     // SyncPlaylists setting removed
                     // DeleteBeforeSync setting removed - collections are now always created precisely
+                    config.SyncBatchSize = document.querySelector('#SyncBatchSize').value;
                     config.SyncArtwork = document.querySelector('#SyncArtwork').checked;
                     config.SyncItemArtwork = document.querySelector('#SyncItemArtwork').checked;
                     config.EnableScheduledSync = document.querySelector('#EnableScheduledSync').checked;
@@ -855,6 +863,7 @@
                     document.querySelector('#SyncCollections').checked = config.SyncCollections;
                     // SyncPlaylists setting removed
                     // DeleteBeforeSync setting removed
+                    document.querySelector('#SyncBatchSize').value = config.SyncBatchSize || 40;
                     document.querySelector('#SyncArtwork').checked = config.SyncArtwork;
                     document.querySelector('#SyncItemArtwork').checked = config.SyncItemArtwork || false;
                     document.querySelector('#EnableScheduledSync').checked = config.EnableScheduledSync;
