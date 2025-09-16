@@ -1,5 +1,5 @@
 <p align="center">
-<img alt="Plugin Banner" src="https://raw.githubusercontent.com/cleverdevil/plexyfin/master/metadata/stable/banner.jpg"/>
+<img alt="Plugin Banner" src="https://raw.githubusercontent.com/cleverdevil/plexyfin/main/metadata/stable/banner.jpg"/>
 <br/>
 
 # Plexyfin Plugin for Jellyfin

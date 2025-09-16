@@ -38,3 +38,7 @@ bld/
 [Ll]og/
 [Ll]ogs/
 dist/
+github_release/
+
+# Claude Code configuration
+.claude/
