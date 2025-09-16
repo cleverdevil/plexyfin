@@ -13,7 +13,7 @@
         "changelog": "- Fix mixed media collections (movies + TV shows) being clobbered during sync\n- Add episode sync functionality\n- Implement parallel processing for improved performance\n- Fix compatibility with Jellyfin 10.10+ by replacing deprecated GetItemList with GetItemsResult\n- Add support for multiple versions of media items (cross-library duplicates and same-library editions)\n- Implement filesystem-based matching to handle different Plex/Jellyfin mount points",
         "targetAbi": "10.10.0.0",
         "sourceUrl": "https://github.com/cleverdevil/plexyfin/releases/download/v0.6.1.0/Plexyfin_0.6.1.0.zip",
-        "checksum": "6b3864e83ea26d4e81ca0aec055594db",
+        "checksum": "94e5727c63641763823a7cef149496c5",
         "timestamp": "2025-09-15T20:10:21Z"
       },
       {
