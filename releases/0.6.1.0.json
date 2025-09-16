@@ -7,9 +7,9 @@
   "description": "Syncs collections, artwork, and their metadata from your Plex Media Server to Jellyfin.",
   "owner": "plexyfin",
   "category": "General",
-  "targetAbi": "10.9.9.0",
-  "changelog": "- Add episode sync functionality\n- Implement parallel processing for improved performance\n- Fix scheduled sync logic to run when any sync tasks are enabled",
+  "targetAbi": "10.10.0.0",
+  "changelog": "- Fix mixed media collections (movies + TV shows) being clobbered during sync\n- Add episode sync functionality\n- Implement parallel processing for improved performance\n- Fix compatibility with Jellyfin 10.10+ by replacing deprecated GetItemList with GetItemsResult\n- Add support for multiple versions of media items (cross-library duplicates and same-library editions)\n- Implement filesystem-based matching to handle different Plex/Jellyfin mount points",
   "imageUrl": "https://raw.githubusercontent.com/plexyfin/plexyfin/main/plexyfin.png",
-  "sourceUrl": "https://github.com/plexyfin/plexyfin/releases/download/v0.6.1.0/Plexyfin_0.6.1.0.zip",
-  "checksum": "TBD"
+  "sourceUrl": "https://github.com/cleverdevil/plexyfin/releases/download/v0.6.1.0/Plexyfin_0.6.1.0.zip",
+  "checksum": "6b3864e83ea26d4e81ca0aec055594db"
 }
