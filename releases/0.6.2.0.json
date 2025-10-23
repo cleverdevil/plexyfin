@@ -9,5 +9,7 @@
   "category": "General",
   "targetAbi": "10.10.0.0",
   "changelog": "- Fix compatibility with Jellyfin 10.11 by using compatibility helper for GetItemList/GetItemsResult API\n- Fix TV show episode poster sync for Jellyfin 10.11+",
-  "imageUrl": "https://raw.githubusercontent.com/plexyfin/plexyfin/main/plexyfin.png"
+  "imageUrl": "https://raw.githubusercontent.com/plexyfin/plexyfin/main/plexyfin.png",
+  "sourceUrl": "https://github.com/cleverdevil/plexyfin/releases/download/v0.6.2.0/Plexyfin_0.6.2.0.zip",
+  "checksum": "a8e5c3b072b7a12f10d8eeb007e693e0"
 }

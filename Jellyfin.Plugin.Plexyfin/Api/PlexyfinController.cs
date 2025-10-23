@@ -1606,7 +1606,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 }
                 if (season is MediaBrowser.Controller.Entities.TV.Season jellySeason)
                 {
-                    var episodes = _libraryManager.GetItemList(new MediaBrowser.Controller.Entities.InternalItemsQuery
+                    var episodes = GetItems(new MediaBrowser.Controller.Entities.InternalItemsQuery
                     {
                         Parent = jellySeason,
                         IncludeItemTypes = new[] { BaseItemKind.Episode }
