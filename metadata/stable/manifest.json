@@ -9,17 +9,9 @@
     "category": "Metadata",
     "versions": [
       {
-        "version": "0.6.2.0",
-        "changelog": "- Fix compatibility with Jellyfin 10.11 by using compatibility helper for GetItemList/GetItemsResult API\n- Fix TV show episode poster sync for Jellyfin 10.11+\n- Add diagnostic logging for version info, configuration, and compatibility method detection",
-        "targetAbi": "10.11",
-        "sourceUrl": "https://github.com/cleverdevil/plexyfin/releases/download/v0.6.2.0/Plexyfin_0.6.2.0.zip",
-        "checksum": "69191d4a966de32c4738e992c06af541",
-        "timestamp": "2025-10-24T17:31:51Z"
-      },
-      {
         "version": "0.6.1.0",
         "changelog": "- Fix mixed media collections (movies + TV shows) being clobbered during sync\n- Add episode sync functionality\n- Implement parallel processing for improved performance\n- Fix compatibility with Jellyfin 10.10+ by replacing deprecated GetItemList with GetItemsResult\n- Add support for multiple versions of media items (cross-library duplicates and same-library editions)\n- Implement filesystem-based matching to handle different Plex/Jellyfin mount points",
-        "targetAbi": "10.10.0.0",
+        "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/cleverdevil/plexyfin/releases/download/v0.6.1.0/Plexyfin_0.6.1.0.zip",
         "checksum": "94e5727c63641763823a7cef149496c5",
         "timestamp": "2025-09-15T20:10:21Z"

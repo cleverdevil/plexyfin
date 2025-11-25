@@ -262,11 +262,12 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         {
             // Use reflection to check which method is available
             var libraryManagerType = _libraryManager.GetType();
-            
+
             // First try GetItemsResult (Jellyfin 10.10+)
             var getItemsResultMethod = libraryManagerType.GetMethod("GetItemsResult");
             if (getItemsResultMethod != null)
             {
+                _logger.LogCompatibilityMethodUsed("GetItemsResult (Jellyfin 10.10+)");
                 var result = getItemsResultMethod.Invoke(_libraryManager, new object[] { query });
                 if (result != null)
                 {
@@ -281,20 +282,21 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     }
                 }
             }
-            
+
             // Fall back to GetItemList (Jellyfin 10.9.x and earlier)
             var getItemListMethod = libraryManagerType.GetMethod("GetItemList");
             if (getItemListMethod != null)
             {
+                _logger.LogCompatibilityMethodUsed("GetItemList (Jellyfin 10.9.x and earlier)");
                 var items = getItemListMethod.Invoke(_libraryManager, new object[] { query }) as IReadOnlyList<BaseItem>;
                 if (items != null)
                 {
                     return items;
                 }
             }
-            
+
             // If neither method is found, return empty list
-            _logger.LogError("Neither GetItemsResult nor GetItemList methods found on ILibraryManager");
+            _logger.LogCompatibilityMethodNotFound();
             return new List<BaseItem>();
         }
 

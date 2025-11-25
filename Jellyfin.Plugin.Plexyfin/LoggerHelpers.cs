@@ -1258,5 +1258,79 @@ namespace Jellyfin.Plugin.Plexyfin
         /// <param name="ex">The exception that occurred.</param>
         public static void LogErrorSettingVisibility(this ILogger logger, Guid id, Exception ex) =>
             _logErrorSettingVisibility(logger, id, ex);
+
+        // ========== NEW DIAGNOSTIC LOGGING ==========
+
+        private static readonly Action<ILogger, string, string, Exception?> _logPluginVersionInfo =
+            LoggerMessage.Define<string, string>(
+                LogLevel.Information,
+                new EventId(200, nameof(_logPluginVersionInfo)),
+                "Plexyfin v{Version} initialized (Assembly: {AssemblyVersion})");
+
+        private static readonly Action<ILogger, string, Exception?> _logJellyfinVersion =
+            LoggerMessage.Define<string>(
+                LogLevel.Information,
+                new EventId(201, nameof(_logJellyfinVersion)),
+                "Jellyfin version detected: {JellyfinVersion}");
+
+        private static readonly Action<ILogger, bool, bool, bool, Exception?> _logPluginConfiguration =
+            LoggerMessage.Define<bool, bool, bool>(
+                LogLevel.Information,
+                new EventId(202, nameof(_logPluginConfiguration)),
+                "Plugin configuration: SyncCollections={SyncCollections}, SyncItemArtwork={SyncItemArtwork}, EnableScheduledSync={EnableScheduledSync}");
+
+        private static readonly Action<ILogger, string, Exception?> _logCompatibilityMethodUsed =
+            LoggerMessage.Define<string>(
+                LogLevel.Debug,
+                new EventId(203, nameof(_logCompatibilityMethodUsed)),
+                "Using compatibility method: {MethodName}");
+
+        private static readonly Action<ILogger, Exception?> _logCompatibilityMethodNotFound =
+            LoggerMessage.Define(
+                LogLevel.Error,
+                new EventId(204, nameof(_logCompatibilityMethodNotFound)),
+                "Neither GetItemsResult nor GetItemList methods found on ILibraryManager - plugin may not work correctly with this Jellyfin version");
+
+        /// <summary>
+        /// Logs plugin version information at startup.
+        /// </summary>
+        /// <param name="logger">The logger instance.</param>
+        /// <param name="version">The plugin version.</param>
+        /// <param name="assemblyVersion">The assembly version.</param>
+        public static void LogPluginVersionInfo(this ILogger logger, string version, string assemblyVersion) =>
+            _logPluginVersionInfo(logger, version, assemblyVersion, null);
+
+        /// <summary>
+        /// Logs detected Jellyfin version.
+        /// </summary>
+        /// <param name="logger">The logger instance.</param>
+        /// <param name="jellyfinVersion">The Jellyfin version.</param>
+        public static void LogJellyfinVersion(this ILogger logger, string jellyfinVersion) =>
+            _logJellyfinVersion(logger, jellyfinVersion, null);
+
+        /// <summary>
+        /// Logs plugin configuration (without sensitive data).
+        /// </summary>
+        /// <param name="logger">The logger instance.</param>
+        /// <param name="syncCollections">Whether collection sync is enabled.</param>
+        /// <param name="syncItemArtwork">Whether item artwork sync is enabled.</param>
+        /// <param name="enableScheduledSync">Whether scheduled sync is enabled.</param>
+        public static void LogPluginConfiguration(this ILogger logger, bool syncCollections, bool syncItemArtwork, bool enableScheduledSync) =>
+            _logPluginConfiguration(logger, syncCollections, syncItemArtwork, enableScheduledSync, null);
+
+        /// <summary>
+        /// Logs which compatibility method is being used (GetItemsResult vs GetItemList).
+        /// </summary>
+        /// <param name="logger">The logger instance.</param>
+        /// <param name="methodName">The name of the method being used.</param>
+        public static void LogCompatibilityMethodUsed(this ILogger logger, string methodName) =>
+            _logCompatibilityMethodUsed(logger, methodName, null);
+
+        /// <summary>
+        /// Logs when neither compatibility method is found (critical error).
+        /// </summary>
+        /// <param name="logger">The logger instance.</param>
+        public static void LogCompatibilityMethodNotFound(this ILogger logger) =>
+            _logCompatibilityMethodNotFound(logger, null);
     }
 }

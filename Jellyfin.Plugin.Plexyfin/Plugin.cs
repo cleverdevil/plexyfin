@@ -182,6 +182,25 @@ namespace Jellyfin.Plugin.Plexyfin
             _logger = loggerFactory.CreateLogger<Plugin>();
             _logger.LogPluginInitializing("Plexyfin");
             Instance = this;
+
+            // Log version information for diagnostics
+            var version = GetType().Assembly.GetName().Version;
+            var assemblyVersion = version != null ? version.ToString() : "Unknown";
+            _logger.LogPluginVersionInfo("0.6.2.0", assemblyVersion);
+
+            // Log configuration (without sensitive data like API keys)
+            try
+            {
+                var config = Configuration;
+                _logger.LogPluginConfiguration(
+                    config.SyncCollections,
+                    config.SyncItemArtwork,
+                    config.EnableScheduledSync);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error logging plugin configuration");
+            }
         }
 
         /// <summary>
