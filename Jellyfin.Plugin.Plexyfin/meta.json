@@ -8,6 +8,6 @@
   "owner": "plexyfin",
   "category": "General",
   "targetAbi": "10.10.0.0",
-  "changelog": "- Fix compatibility with Jellyfin 10.11 by using compatibility helper for GetItemList/GetItemsResult API\n- Fix TV show episode poster sync for Jellyfin 10.11+\n- Add diagnostic logging for version info, configuration, and compatibility method detection",
+  "changelog": "- Fix compatibility with Jellyfin 10.11 by using compatibility helper for GetItemList/GetItemsResult API\n- Fix TV show episode poster sync for Jellyfin 10.11+\n- Add diagnostic logging for version info, configuration, and compatibility method detection\n- Add retry logic with exponential backoff for file locking issues during collection sync",
   "imageUrl": "https://raw.githubusercontent.com/plexyfin/plexyfin/main/plexyfin.png"
 }
