@@ -220,6 +220,43 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         private static readonly Dictionary<string, SyncStatus> ActiveSyncs = new Dictionary<string, SyncStatus>();
 
         /// <summary>
+        /// Executes an async operation with retry logic for IOException (file locking issues).
+        /// Uses exponential backoff between retries.
+        /// </summary>
+        /// <param name="operation">The async operation to execute.</param>
+        /// <param name="operationName">Name of the operation for logging.</param>
+        /// <param name="logger">Logger instance.</param>
+        /// <param name="maxRetries">Maximum number of retry attempts (default 3).</param>
+        /// <param name="initialDelayMs">Initial delay in milliseconds before first retry (default 200).</param>
+        /// <returns>A task representing the async operation.</returns>
+        private static async Task ExecuteWithRetryAsync(
+            Func<Task> operation,
+            string operationName,
+            ILogger logger,
+            int maxRetries = 3,
+            int initialDelayMs = 200)
+        {
+            int attempt = 0;
+            while (true)
+            {
+                try
+                {
+                    await operation().ConfigureAwait(false);
+                    return;
+                }
+                catch (IOException ex) when (attempt < maxRetries)
+                {
+                    attempt++;
+                    int delayMs = initialDelayMs * (1 << (attempt - 1)); // Exponential backoff: 200, 400, 800...
+                    logger.LogWarning(
+                        "IOException during {OperationName} (attempt {Attempt}/{MaxRetries}), retrying in {DelayMs}ms: {Message}",
+                        operationName, attempt, maxRetries, delayMs, ex.Message);
+                    await Task.Delay(delayMs).ConfigureAwait(false);
+                }
+            }
+        }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="PlexyfinController"/> class.
         /// </summary>
         /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/>.</param>
@@ -833,17 +870,23 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                                         newCollection.ForcedSortName = mergedCollection.SortTitle;
                                     }
 
-                                    // Save the metadata changes
-                                    await _libraryManager.UpdateItemAsync(
-                                        newCollection,
-                                        newCollection.GetParent(),
-                                        ItemUpdateType.MetadataEdit,
-                                        CancellationToken.None).ConfigureAwait(false);
+                                    // Save the metadata changes with retry for file locking issues
+                                    await ExecuteWithRetryAsync(
+                                        async () => await _libraryManager.UpdateItemAsync(
+                                            newCollection,
+                                            newCollection.GetParent(),
+                                            ItemUpdateType.MetadataEdit,
+                                            CancellationToken.None).ConfigureAwait(false),
+                                        $"UpdateItemAsync for collection '{mergedCollection.Title}'",
+                                        _logger).ConfigureAwait(false);
 
                                     // Process artwork if enabled - use the first collection's artwork
                                     if (config.SyncArtwork && mergedCollection.Collections.Count > 0)
                                     {
-                                        await ProcessCollectionArtwork(newCollection, mergedCollection.Collections[0]).ConfigureAwait(false);
+                                        await ExecuteWithRetryAsync(
+                                            async () => await ProcessCollectionArtwork(newCollection, mergedCollection.Collections[0]).ConfigureAwait(false),
+                                            $"ProcessCollectionArtwork for collection '{mergedCollection.Title}'",
+                                            _logger).ConfigureAwait(false);
                                     }
 
                                     added++;
@@ -1122,14 +1165,17 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     }
                 }
 
-                // Refresh artwork after changes
+                // Refresh artwork after changes with retry for file locking issues
                 if (hasChanges)
                 {
-                    await _libraryManager.UpdateItemAsync(
-                        jellyfinCollection,
-                        jellyfinCollection.GetParent(),
-                        ItemUpdateType.ImageUpdate,
-                        CancellationToken.None).ConfigureAwait(false);
+                    await ExecuteWithRetryAsync(
+                        async () => await _libraryManager.UpdateItemAsync(
+                            jellyfinCollection,
+                            jellyfinCollection.GetParent(),
+                            ItemUpdateType.ImageUpdate,
+                            CancellationToken.None).ConfigureAwait(false),
+                        $"UpdateItemAsync (ImageUpdate) for collection '{jellyfinCollection.Name}'",
+                        _logger).ConfigureAwait(false);
 
                     _logger.LogUpdatedRepoWithImages("collection");
                 }

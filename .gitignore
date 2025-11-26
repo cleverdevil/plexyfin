@@ -42,3 +42,4 @@ github_release/
 
 # Claude Code configuration
 .claude/
+*.zip
