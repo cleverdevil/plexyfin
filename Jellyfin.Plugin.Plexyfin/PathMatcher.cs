@@ -37,7 +37,7 @@ namespace Jellyfin.Plugin.Plexyfin
             
             // Check if last N parts match (working backwards from filename)
             // We check up to 3 segments: filename, parent folder, and grandparent folder
-            for (int i = 1; i <= Math.Min(minLength, 3); i++)
+            for (int i = 1; i <= Math.Min(minLength, 5); i++)
             {
                 if (!string.Equals(plexParts[^i], jellyfinParts[^i], StringComparison.OrdinalIgnoreCase))
                 {
