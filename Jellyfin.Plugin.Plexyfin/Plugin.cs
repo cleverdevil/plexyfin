@@ -186,7 +186,7 @@ namespace Jellyfin.Plugin.Plexyfin
             // Log version information for diagnostics
             var version = GetType().Assembly.GetName().Version;
             var assemblyVersion = version != null ? version.ToString() : "Unknown";
-            _logger.LogPluginVersionInfo("0.6.2.0", assemblyVersion);
+            _logger.LogPluginVersionInfo("0.6.7.0", assemblyVersion);
 
             // Log configuration (without sensitive data like API keys)
             try

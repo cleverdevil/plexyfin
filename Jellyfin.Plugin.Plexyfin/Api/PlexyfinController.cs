@@ -219,6 +219,10 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         // Static field to track ongoing sync operations
         private static readonly Dictionary<string, SyncStatus> ActiveSyncs = new Dictionary<string, SyncStatus>();
 
+        // Tracks how many artwork downloads were skipped in the current sync run because the
+        // local file was already at least as new as Plex's reported "updatedAt" timestamp.
+        private int _artworkSkippedCount;
+
         /// <summary>
         /// Executes an async operation with retry logic for IOException (file locking issues).
         /// Uses exponential backoff between retries.
@@ -254,6 +258,43 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     await Task.Delay(delayMs).ConfigureAwait(false);
                 }
             }
+        }
+
+        /// <summary>
+        /// Runs an async operation over a list of items with a hard cap on how many run at the
+        /// same time, instead of firing all of them at once. This is the key lever for how much
+        /// concurrent load Plexyfin puts on the Plex server (simultaneous HTTP downloads) and on
+        /// Jellyfin (simultaneous image saves / database writes) during a sync. Without a cap,
+        /// a single TV series with, say, 200 episodes would fire 200 simultaneous requests at
+        /// both servers the moment that series was reached.
+        /// </summary>
+        /// <typeparam name="TSource">The type of the source items.</typeparam>
+        /// <typeparam name="TResult">The type of result each operation produces.</typeparam>
+        /// <param name="items">The items to process.</param>
+        /// <param name="maxConcurrency">The maximum number of operations allowed to run at once (clamped to at least 1).</param>
+        /// <param name="action">The async operation to run for each item.</param>
+        /// <returns>The results of each operation, in the same order as <paramref name="items"/>.</returns>
+        private static async Task<TResult[]> ProcessWithLimitedConcurrencyAsync<TSource, TResult>(
+            IEnumerable<TSource> items,
+            int maxConcurrency,
+            Func<TSource, Task<TResult>> action)
+        {
+            using var semaphore = new SemaphoreSlim(Math.Max(1, maxConcurrency));
+
+            var tasks = items.Select(async item =>
+            {
+                await semaphore.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    return await action(item).ConfigureAwait(false);
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            });
+
+            return await Task.WhenAll(tasks).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -347,6 +388,14 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         {
             var config = Plugin.Instance!.Configuration;
             var result = new SyncResult();
+            _artworkSkippedCount = 0;
+
+            if (config.ForceReplaceAllArtwork && config.SyncItemArtwork)
+            {
+                _logger.LogWarning(
+                    "Force Replace All Artwork is ENABLED -- every item's artwork will be re-downloaded and replaced " +
+                    "this run (and every run) until this option is turned back off in the plugin settings.");
+            }
 
             // If this is a dry run, initialize the details collection
             if (dryRun)
@@ -551,6 +600,12 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 syncStatus.Message = completionMessage;
                 syncStatus.Progress = 100;
                 syncStatus.EndTime = DateTime.UtcNow;
+            }
+
+            result.ArtworkSkipped = _artworkSkippedCount;
+            if (_artworkSkippedCount > 0)
+            {
+                _logger.LogArtworkSkippedSummary(_artworkSkippedCount);
             }
 
             return result;
@@ -1000,7 +1055,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             try
             {
                 // Process primary image (poster/thumbnail)
-                if (plexCollection.ThumbUrl != null)
+                if (plexCollection.ThumbUrl != null && !IsArtworkUpToDate(jellyfinCollection, ImageType.Primary, plexCollection.UpdatedAt))
                 {
                     _logger.LogDownloadingThumbnail("collection", plexCollection.ThumbUrl.ToString());
 
@@ -1083,7 +1138,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 }
 
                 // Process background image (art)
-                if (plexCollection.ArtUrl != null)
+                if (plexCollection.ArtUrl != null && !IsArtworkUpToDate(jellyfinCollection, ImageType.Backdrop, plexCollection.UpdatedAt))
                 {
                     _logger.LogDownloadingArt(plexCollection.ArtUrl.ToString());
 
@@ -1309,6 +1364,99 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         }
 
         /// <summary>
+        /// Determines whether the existing local artwork for a Jellyfin item is already up to
+        /// date relative to the Plex item's "updatedAt" timestamp, so the delete/redownload
+        /// cycle can be skipped. This avoids the unnecessary network and disk I/O that would
+        /// otherwise occur on every sync run for the vast majority of items whose artwork
+        /// hasn't changed in Plex.
+        /// </summary>
+        /// <remarks>
+        /// This also correctly picks up artwork refreshed by external tools such as Kometa
+        /// (formerly Plex Meta Manager): whenever Kometa updates a poster or backdrop (for
+        /// example, to add a "Trending" or "Ended" overlay), Plex bumps the item's
+        /// "updatedAt" value, which makes it newer than the local file and forces a refresh.
+        /// </remarks>
+        /// <param name="jellyfinItem">The Jellyfin item whose artwork is being considered.</param>
+        /// <param name="imageType">The type of image being checked (Primary or Backdrop).</param>
+        /// <param name="plexUpdatedAt">The last-updated timestamp reported by Plex for the source item.</param>
+        /// <returns>True if the local artwork is already current and the download can be skipped.</returns>
+        private bool IsArtworkUpToDate(BaseItem jellyfinItem, ImageType imageType, DateTimeOffset? plexUpdatedAt)
+        {
+            // If Plex didn't report a timestamp, or the optimization is disabled, always refresh
+            // to be safe -- we'd rather do an unnecessary download than miss a real change.
+            if (plexUpdatedAt == null)
+            {
+                return false;
+            }
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null || !config.SkipUnchangedArtwork)
+            {
+                return false;
+            }
+
+            // Manual override: the user has asked to force a full artwork replace, so ignore
+            // the skip check entirely and always report "not up to date" until they turn this
+            // back off.
+            if (config.ForceReplaceAllArtwork)
+            {
+                return false;
+            }
+
+            List<ItemImageInfo> existingImages;
+            try
+            {
+                existingImages = jellyfinItem.GetImages(imageType).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error reading existing {0} images for {1}, will re-download", imageType, jellyfinItem.Name);
+                return false;
+            }
+
+            if (existingImages.Count == 0)
+            {
+                // Nothing local yet -- must download.
+                return false;
+            }
+
+            foreach (var image in existingImages)
+            {
+                if (!image.IsLocalFile || string.IsNullOrEmpty(image.Path))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    if (!System.IO.File.Exists(image.Path))
+                    {
+                        continue;
+                    }
+
+                    var localWriteTimeUtc = System.IO.File.GetLastWriteTimeUtc(image.Path);
+
+                    if (localWriteTimeUtc >= plexUpdatedAt.Value.UtcDateTime)
+                    {
+                        _logger.LogSkippingUnchangedArtwork(jellyfinItem.Name, imageType.ToString(), localWriteTimeUtc, plexUpdatedAt.Value.UtcDateTime);
+                        _artworkSkippedCount++;
+                        return true;
+                    }
+                }
+                catch (IOException ex)
+                {
+                    _logger.LogWarning(ex, "Could not read last write time for {0} image file: {1}", imageType, image.Path);
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    _logger.LogWarning(ex, "Access denied reading last write time for {0} image file: {1}", imageType, image.Path);
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Processes artwork for an individual episode.
         /// </summary>
         /// <param name="series">The Jellyfin TV series.</param>
@@ -1339,7 +1487,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             try
             {
                 // Process episode thumbnail
-                if (plexEpisode.ThumbUrl != null)
+                if (plexEpisode.ThumbUrl != null && !IsArtworkUpToDate(jellyEpisode, ImageType.Primary, plexEpisode.UpdatedAt))
                 {
                     // Clear existing Primary images before saving the new one
                     await ClearItemImages(jellyEpisode, ImageType.Primary).ConfigureAwait(false);
@@ -1440,7 +1588,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             try
             {
                 // Process primary image (poster/thumbnail) for the season
-                if (plexSeason.ThumbUrl != null)
+                if (plexSeason.ThumbUrl != null && !IsArtworkUpToDate(jellySeason, ImageType.Primary, plexSeason.UpdatedAt))
                 {
                     _logger.LogInformation("Downloading season thumbnail: {0}", plexSeason.ThumbUrl.ToString());
 
@@ -1521,7 +1669,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 }
 
                 // Process backdrop image for the season (if available)
-                if (plexSeason.ArtUrl != null)
+                if (plexSeason.ArtUrl != null && !IsArtworkUpToDate(jellySeason, ImageType.Backdrop, plexSeason.UpdatedAt))
                 {
                     _logger.LogInformation("Downloading season backdrop: {0}", plexSeason.ArtUrl.ToString());
 
@@ -1601,7 +1749,9 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     }
                 }
 
-                // Refresh artwork after changes
+                // Persist the change immediately -- this is what actually writes the new image
+                // info to Jellyfin's database, not just a notification, so it must happen right
+                // after saving while our in-memory item reference is still current.
                 if (hasChanges)
                 {
                     await _libraryManager.UpdateItemAsync(
@@ -1776,7 +1926,9 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     hasChanges = artworkCount > 0;
                 }
 
-                // Refresh artwork after changes
+                // Persist the change immediately -- this is what actually writes the new image
+                // info to Jellyfin's database, not just a notification, so it must happen right
+                // after saving while our in-memory item reference is still current.
                 if (hasChanges)
                 {
                     await _libraryManager.UpdateItemAsync(
@@ -1825,7 +1977,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
             try
             {
                 // Process primary image (poster/thumbnail)
-                if (plexItem.ThumbUrl != null)
+                if (plexItem.ThumbUrl != null && !IsArtworkUpToDate(jellyfinItem, ImageType.Primary, plexItem.UpdatedAt))
                 {
                     _logger.LogDownloadingThumbnail("item", plexItem.ThumbUrl.ToString());
 
@@ -1911,7 +2063,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 }
 
                 // Process background image (art)
-                if (plexItem.ArtUrl != null)
+                if (plexItem.ArtUrl != null && !IsArtworkUpToDate(jellyfinItem, ImageType.Backdrop, plexItem.UpdatedAt))
                 {
                     _logger.LogDownloadingItemArt("item", plexItem.ArtUrl.ToString());
 
@@ -2031,8 +2183,15 @@ namespace Jellyfin.Plugin.Plexyfin.Api
 
                 // Get episodes from Plex
                 var plexEpisodes = await plexClient.GetTvSeriesEpisodes(plexSeriesId).ConfigureAwait(false);
-                var tasks = plexEpisodes.ToList().Select(ep => ProcessEpisodeArtwork(series, ep)).ToList();
-                var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+
+                // Process episodes with bounded concurrency instead of all at once -- a series
+                // can easily have 100+ episodes, and firing all of them simultaneously at Plex
+                // and Jellyfin is exactly the kind of API flooding we want to avoid.
+                var maxConcurrency = Plugin.Instance?.Configuration.MaxConcurrentApiRequests ?? 3;
+                var results = await ProcessWithLimitedConcurrencyAsync(
+                    plexEpisodes,
+                    maxConcurrency,
+                    ep => ProcessEpisodeArtwork(series, ep)).ConfigureAwait(false);
                 processedEpisodes += results.Count(success => success);
             }
             catch (Exception ex)
@@ -2071,8 +2230,14 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                 // Get seasons from Plex
                 var plexSeasons = await plexClient.GetTvSeriesSeasons(plexSeriesId).ConfigureAwait(false);
                 _logger.LogInformation("Found {0} seasons for TV series {1}", plexSeasons.Count, series.Name);
-                var tasks = plexSeasons.ToList().Select(plexSeason => ProcessSeasonArtwork(series, plexSeason)).ToList();
-                var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+
+                // Process seasons with bounded concurrency instead of all at once, for the same
+                // reason as episodes above.
+                var maxConcurrency = Plugin.Instance?.Configuration.MaxConcurrentApiRequests ?? 3;
+                var results = await ProcessWithLimitedConcurrencyAsync(
+                    plexSeasons,
+                    maxConcurrency,
+                    plexSeason => ProcessSeasonArtwork(series, plexSeason)).ConfigureAwait(false);
                 processedSeasons += results.Count(success => success);
 
                 _logger.LogInformation("Processed artwork for {0} seasons of {1}", processedSeasons, series.Name);
@@ -2197,72 +2362,102 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     int totalItems = plexItems.Count;
                     int processedItems = 0;
 
-                    // True parallel processing with fixed concurrency using SemaphoreSlim
-                    using (var semaphore = new SemaphoreSlim(config.SyncBatchSize > 0 ? config.SyncBatchSize : 5))
-                    {
-                        var tasks = new List<Task>();
-                        foreach (var plexItem in plexItems)
-                        {
-                            await semaphore.WaitAsync().ConfigureAwait(false);
-                            processedItems++;
-                            if (syncStatus != null && totalItems > 0 && processedItems % 10 == 0)
-                            {
-                                syncStatus.Message = $"Processing library {processedLibraries} of {totalLibraries}: " +
-                                                   $"Item {processedItems} of {totalItems} ({plexItem.Title})";
-                            }
-                            _logger.LogProcessingItemArtwork(plexItem.Title);
-                            var jellyfinItem = jellyfinIndex.FindMatch(plexItem);
-                            if (jellyfinItem != null)
-                            {
-                                _logger.LogMatchedItem(plexItem.Title, jellyfinItem.Id);
+                    // How many items to work on at the same time. This is deliberately a small,
+                    // dedicated setting (default 3) -- NOT the batch size below -- because it
+                    // directly controls how many simultaneous HTTP requests hit the Plex server
+                    // and how many simultaneous image saves/database writes hit Jellyfin.
+                    int maxConcurrency = config.MaxConcurrentApiRequests > 0 ? config.MaxConcurrentApiRequests : 3;
 
-                                // Check if we've already processed artwork for this Jellyfin item
-                                // (handles multiple Plex versions mapping to same Jellyfin item)
-                                if (processedJellyfinItems.Contains(jellyfinItem.Id))
+                    // How many items make up one batch. Items are processed batch by batch, with
+                    // a short pause in between, instead of queuing the entire library at once.
+                    // Combined with the concurrency cap above, this keeps load on Plex/Jellyfin
+                    // smooth and predictable even for very large libraries.
+                    int batchSize = config.SyncBatchSize > 0 ? config.SyncBatchSize : 25;
+                    var itemBatches = plexItems.Chunk(batchSize).ToList();
+
+                    // How long to pause between batches (milliseconds). User-configurable so
+                    // people can tune how gentle/fast the sync is on their setup.
+                    int batchDelayMs = config.BatchDelayMilliseconds >= 0 ? config.BatchDelayMilliseconds : 750;
+
+                    for (int batchIndex = 0; batchIndex < itemBatches.Count; batchIndex++)
+                    {
+                        var itemBatch = itemBatches[batchIndex];
+
+                        using (var semaphore = new SemaphoreSlim(maxConcurrency))
+                        {
+                            var tasks = new List<Task>();
+                            foreach (var plexItem in itemBatch)
+                            {
+                                await semaphore.WaitAsync().ConfigureAwait(false);
+                                processedItems++;
+                                if (syncStatus != null && totalItems > 0 && processedItems % 10 == 0)
                                 {
-                                    _logger.LogDebug("Already processed artwork for Jellyfin item '{0}' (ID: {1}), skipping duplicate", 
-                                        jellyfinItem.Name, jellyfinItem.Id);
-                                    semaphore.Release();
+                                    syncStatus.Message = $"Processing library {processedLibraries} of {totalLibraries}: " +
+                                                       $"Item {processedItems} of {totalItems} ({plexItem.Title})";
                                 }
-                                else
+                                _logger.LogProcessingItemArtwork(plexItem.Title);
+                                var jellyfinItem = jellyfinIndex.FindMatch(plexItem);
+                                if (jellyfinItem != null)
                                 {
-                                    // Process artwork for this item
-                                    if (!dryRun)
+                                    _logger.LogMatchedItem(plexItem.Title, jellyfinItem.Id);
+
+                                    // Check if we've already processed artwork for this Jellyfin item
+                                    // (handles multiple Plex versions mapping to same Jellyfin item)
+                                    if (processedJellyfinItems.Contains(jellyfinItem.Id))
                                     {
-                                        var task = Task.Run(async () => {
-                                            try
-                                            {
-                                                await ProcessItemArtwork(jellyfinItem, plexItem).ConfigureAwait(false);
-                                                lock (processedJellyfinItems)
-                                                {
-                                                    processedJellyfinItems.Add(jellyfinItem.Id);
-                                                }
-                                            }
-                                            catch (Exception ex)
-                                            {
-                                                _logger.LogErrorProcessingArtwork("item", plexItem.Title, ex);
-                                            }
-                                            finally
-                                            {
-                                                semaphore.Release();
-                                            }
-                                        });
-                                        tasks.Add(task);
+                                        _logger.LogDebug("Already processed artwork for Jellyfin item '{0}' (ID: {1}), skipping duplicate", 
+                                            jellyfinItem.Name, jellyfinItem.Id);
+                                        semaphore.Release();
                                     }
                                     else
                                     {
-                                        semaphore.Release();
+                                        // Process artwork for this item
+                                        if (!dryRun)
+                                        {
+                                            var task = Task.Run(async () => {
+                                                try
+                                                {
+                                                    await ProcessItemArtwork(jellyfinItem, plexItem).ConfigureAwait(false);
+                                                    lock (processedJellyfinItems)
+                                                    {
+                                                        processedJellyfinItems.Add(jellyfinItem.Id);
+                                                    }
+                                                }
+                                                catch (Exception ex)
+                                                {
+                                                    _logger.LogErrorProcessingArtwork("item", plexItem.Title, ex);
+                                                }
+                                                finally
+                                                {
+                                                    semaphore.Release();
+                                                }
+                                            });
+                                            tasks.Add(task);
+                                        }
+                                        else
+                                        {
+                                            semaphore.Release();
+                                        }
+                                        artworkUpdated++;
                                     }
-                                    artworkUpdated++;
+                                }
+                                else
+                                {
+                                    _logger.LogNoMatchItem(plexItem.Title);
+                                    semaphore.Release();
                                 }
                             }
-                            else
-                            {
-                                _logger.LogNoMatchItem(plexItem.Title);
-                                semaphore.Release();
-                            }
+                            await Task.WhenAll(tasks).ConfigureAwait(false);
                         }
-                        await Task.WhenAll(tasks).ConfigureAwait(false);
+
+                        // Give Plex and Jellyfin a short breather between batches instead of
+                        // immediately hammering them with the next one. Skipped after the last
+                        // batch (nothing to wait for), during dry runs (no requests were made),
+                        // and when the user has set the delay to 0.
+                        if (!dryRun && batchDelayMs > 0 && batchIndex < itemBatches.Count - 1)
+                        {
+                            await Task.Delay(batchDelayMs).ConfigureAwait(false);
+                        }
                     }
 
                     _logger.LogLibraryArtworkComplete(libraryId, artworkUpdated);

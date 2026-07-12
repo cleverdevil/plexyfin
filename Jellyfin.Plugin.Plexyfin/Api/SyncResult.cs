@@ -27,6 +27,12 @@ namespace Jellyfin.Plugin.Plexyfin.Api
         /// Gets or sets the number of items with artwork updated.
         /// </summary>
         public int ItemArtworkUpdated { get; set; }
+
+        /// <summary>
+        /// Gets or sets the number of artwork downloads skipped because the local file was
+        /// already at least as new as the corresponding Plex item's "updatedAt" timestamp.
+        /// </summary>
+        public int ArtworkSkipped { get; set; }
         
         /// <summary>
         /// Gets or sets detailed information about the sync operation.

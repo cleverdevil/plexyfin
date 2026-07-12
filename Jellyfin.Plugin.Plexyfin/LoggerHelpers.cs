@@ -1291,6 +1291,18 @@ namespace Jellyfin.Plugin.Plexyfin
                 new EventId(204, nameof(_logCompatibilityMethodNotFound)),
                 "Neither GetItemsResult nor GetItemList methods found on ILibraryManager - plugin may not work correctly with this Jellyfin version");
 
+        private static readonly Action<ILogger, string, string, DateTime, DateTime, Exception?> _logSkippingUnchangedArtwork =
+            LoggerMessage.Define<string, string, DateTime, DateTime>(
+                LogLevel.Debug,
+                new EventId(205, nameof(_logSkippingUnchangedArtwork)),
+                "Skipping {ImageType} artwork download for {ItemName}: local file (modified {LocalWriteTimeUtc:u}) is already at least as new as Plex's updatedAt ({PlexUpdatedAtUtc:u})");
+
+        private static readonly Action<ILogger, int, Exception?> _logArtworkSkippedSummary =
+            LoggerMessage.Define<int>(
+                LogLevel.Information,
+                new EventId(206, nameof(_logArtworkSkippedSummary)),
+                "Skipped {SkippedCount} unchanged artwork download(s) during this sync");
+
         /// <summary>
         /// Logs plugin version information at startup.
         /// </summary>
@@ -1332,5 +1344,25 @@ namespace Jellyfin.Plugin.Plexyfin
         /// <param name="logger">The logger instance.</param>
         public static void LogCompatibilityMethodNotFound(this ILogger logger) =>
             _logCompatibilityMethodNotFound(logger, null);
+
+        /// <summary>
+        /// Logs that an artwork download was skipped because the local file is already
+        /// up to date relative to Plex's "updatedAt" timestamp for the item.
+        /// </summary>
+        /// <param name="logger">The logger instance.</param>
+        /// <param name="itemName">The name of the item.</param>
+        /// <param name="imageType">The type of image (Primary/Backdrop).</param>
+        /// <param name="localWriteTimeUtc">The local file's last write time (UTC).</param>
+        /// <param name="plexUpdatedAtUtc">Plex's reported updatedAt time (UTC).</param>
+        public static void LogSkippingUnchangedArtwork(this ILogger logger, string itemName, string imageType, DateTime localWriteTimeUtc, DateTime plexUpdatedAtUtc) =>
+            _logSkippingUnchangedArtwork(logger, imageType, itemName, localWriteTimeUtc, plexUpdatedAtUtc, null);
+
+        /// <summary>
+        /// Logs a summary of how many artwork downloads were skipped during a sync run.
+        /// </summary>
+        /// <param name="logger">The logger instance.</param>
+        /// <param name="skippedCount">The number of artwork downloads that were skipped.</param>
+        public static void LogArtworkSkippedSummary(this ILogger logger, int skippedCount) =>
+            _logArtworkSkippedSummary(logger, skippedCount, null);
     }
 }

@@ -43,5 +43,13 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
         /// </summary>
         [JsonPropertyName("artUrl")]
         public Uri? ArtUrl { get; set; }
+
+        /// <summary>
+        /// Gets or sets the timestamp of the last time this collection was updated in Plex.
+        /// Used to determine whether locally cached artwork is still current, so unchanged
+        /// artwork does not need to be re-downloaded on every sync.
+        /// </summary>
+        [JsonPropertyName("updatedAt")]
+        public DateTimeOffset? UpdatedAt { get; set; }
     }
 }
