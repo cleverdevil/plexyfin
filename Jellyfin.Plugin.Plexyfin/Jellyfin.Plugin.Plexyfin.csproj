@@ -6,8 +6,8 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <Nullable>enable</Nullable>
-    <AssemblyVersion>0.6.7.0</AssemblyVersion>
-    <FileVersion>0.6.7.0</FileVersion>
+    <AssemblyVersion>0.6.3.0</AssemblyVersion>
+    <FileVersion>0.6.3.0</FileVersion>
     <ErrorOnDuplicatePublishOutputFiles>false</ErrorOnDuplicatePublishOutputFiles>
   </PropertyGroup>
 

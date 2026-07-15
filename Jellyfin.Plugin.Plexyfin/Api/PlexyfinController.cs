@@ -1439,7 +1439,7 @@ namespace Jellyfin.Plugin.Plexyfin.Api
                     if (localWriteTimeUtc >= plexUpdatedAt.Value.UtcDateTime)
                     {
                         _logger.LogSkippingUnchangedArtwork(jellyfinItem.Name, imageType.ToString(), localWriteTimeUtc, plexUpdatedAt.Value.UtcDateTime);
-                        _artworkSkippedCount++;
+                        Interlocked.Increment(ref _artworkSkippedCount);
                         return true;
                     }
                 }

@@ -9,6 +9,14 @@
     "category": "Metadata",
     "versions": [
       {
+        "version": "0.6.3.0",
+        "changelog": "- Skip re-downloading artwork that hasn't changed in Plex (compares Plex updatedAt against local file), with a Force Replace All Artwork override\n- Add configurable concurrency limit (MaxConcurrentApiRequests, default 3) to prevent flooding Plex and Jellyfin during artwork sync\n- Process artwork in real batches with a configurable pause between batches\n- Bound previously unlimited parallelism for season and episode artwork sync\n- Request external IDs (includeGuids) from Plex for more reliable item matching\n- Enable nullable reference types and clean up build warnings",
+        "targetAbi": "10.10.0.0",
+        "sourceUrl": "https://github.com/cleverdevil/plexyfin/releases/download/v0.6.3.0/Plexyfin_0.6.3.0.zip",
+        "checksum": "8a6ccd6281ab94de5b0faa709c204c65",
+        "timestamp": "2026-07-15T01:26:45Z"
+      },
+      {
         "version": "0.6.2.0",
         "changelog": "- Fix compatibility with Jellyfin 10.11 by using compatibility helper for GetItemList/GetItemsResult API\n- Fix TV show episode poster sync for Jellyfin 10.11+\n- Add diagnostic logging for version info, configuration, and compatibility method detection\n- Add retry logic with exponential backoff for file locking issues during collection sync",
         "targetAbi": "10.10.0.0",

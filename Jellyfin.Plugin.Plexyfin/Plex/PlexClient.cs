@@ -803,11 +803,6 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
         }
         
         /// <summary>
-        /// Extracts external IDs from Plex XML element.
-        /// </summary>
-        /// <param name="element">The XML element containing the item data.</param>
-        /// <param name="item">The PlexItem to populate with external IDs.</param>
-        /// <summary>
         /// Parses the "updatedAt" attribute (a Unix epoch timestamp in seconds) from a Plex
         /// XML element, if present.
         /// </summary>
@@ -825,6 +820,11 @@ namespace Jellyfin.Plugin.Plexyfin.Plex
             return null;
         }
 
+        /// <summary>
+        /// Extracts external IDs from Plex XML element.
+        /// </summary>
+        /// <param name="element">The XML element containing the item data.</param>
+        /// <param name="item">The PlexItem to populate with external IDs.</param>
         private void ExtractExternalIds(XElement element, PlexItem item)
         {
             _logger.LogDebug("Extracting external IDs for '{0}'", item.Title);
