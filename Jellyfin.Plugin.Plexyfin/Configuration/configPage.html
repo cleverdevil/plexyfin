@@ -77,7 +77,31 @@
                             <label for="SyncBatchSize">Sync batch size:</label>
                             <input id="SyncBatchSize" name="SyncBatchSize" type="number" min="1" max="500" step="1" required />
                             <div class="fieldDescription" style="font-size: 90%; margin-bottom: 15px;">
-                                Number of items to process in each batch during sync operations. Adjust based on your server's performance and load.
+                                Number of items grouped into one batch during artwork sync. Plexyfin pauses briefly
+                                between batches instead of processing an entire library in one go. This does
+                                <strong>not</strong> control how many items are worked on at the same time &mdash; see
+                                "Max concurrent operations" below for that.
+                            </div>
+                        </div>
+                        <div class="inputContainer">
+                            <label for="MaxConcurrentApiRequests">Max concurrent operations:</label>
+                            <input id="MaxConcurrentApiRequests" name="MaxConcurrentApiRequests" type="number" min="1" max="20" step="1" required />
+                            <div class="fieldDescription" style="font-size: 90%; margin-bottom: 15px;">
+                                How many items Plexyfin works on at the same time during artwork sync (this applies to
+                                movies/shows as well as their seasons and episodes). This is the main setting for how
+                                much simultaneous load is put on your Plex server (concurrent downloads) and on
+                                Jellyfin (concurrent image saves/database writes). <strong>Keep this low (2-5)</strong>
+                                &mdash; higher values can overwhelm Jellyfin's database or flood Plex with requests,
+                                especially on large libraries.
+                            </div>
+                        </div>
+                        <div class="inputContainer">
+                            <label for="BatchDelayMilliseconds">Pause between batches (ms):</label>
+                            <input id="BatchDelayMilliseconds" name="BatchDelayMilliseconds" type="number" min="0" max="60000" step="50" required />
+                            <div class="fieldDescription" style="font-size: 90%; margin-bottom: 15px;">
+                                How long Plexyfin waits between processing batches (see "Sync batch size" above), in
+                                milliseconds. Gives Plex and Jellyfin a short breather so requests aren't sent in one
+                                continuous stream. Set to 0 to disable the pause and move to the next batch immediately.
                             </div>
                         </div>
                         <div class="checkboxContainer">
@@ -123,6 +147,38 @@
                             <span style="font-size: 16px;">⚠️ WARNING</span><br>
                             Enabling artwork sync will <strong>REPLACE ALL EXISTING ARTWORK</strong> in Jellyfin with the artwork from Plex. All existing posters and backdrops in Jellyfin will be deleted and replaced with Plex's artwork. This operation cannot be undone.<br><br>
                             <strong>It is STRONGLY recommended to create a backup of your Jellyfin metadata directory before performing a sync.</strong>
+                        </div>
+
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" id="SkipUnchangedArtwork" />
+                                <span>Skip Re-downloading Unchanged Artwork</span>
+                            </label>
+                        </div>
+                        <div class="fieldDescription" style="margin-left: 25px; font-size: 90%; margin-bottom: 15px;">
+                            When enabled (recommended), Plexyfin compares Plex's "last updated" timestamp for each item
+                            against the local image file's modification date, and skips re-downloading artwork that
+                            hasn't changed since the last sync. This greatly reduces network and disk load on large
+                            libraries. Genuine artwork changes are still detected and synced &mdash; including posters
+                            and backdrops updated dynamically by tools like Kometa (formerly Plex Meta Manager), since
+                            Plex updates its timestamp whenever those tools modify an item's artwork.
+                        </div>
+
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" id="ForceReplaceAllArtwork" />
+                                <span>Force Replace All Artwork</span>
+                            </label>
+                        </div>
+                        <div class="fieldDescription" style="margin-left: 25px; font-size: 90%; margin-bottom: 15px; color: #d9534f; font-weight: bold; border: 1px solid #d9534f; padding: 10px; border-radius: 4px;">
+                            <span style="font-size: 16px;">⚠️ WARNING</span><br>
+                            When enabled, this <strong>overrides "Skip Re-downloading Unchanged Artwork" above</strong> and
+                            re-downloads and replaces every piece of artwork on every sync, even if it hasn't changed.
+                            Use this to force a one-time full refresh &mdash; for example, if you suspect local artwork
+                            has gotten out of sync with Plex.<br><br>
+                            <strong>Remember to turn this back off after your next sync</strong>, otherwise every future
+                            sync will re-download and replace everything again, putting Plexyfin back into the heavy,
+                            high I/O mode this plugin's optimizations exist to avoid.
                         </div>
 
                     </div>
@@ -814,8 +870,12 @@
                     // SyncPlaylists setting removed
                     // DeleteBeforeSync setting removed - collections are now always created precisely
                     config.SyncBatchSize = document.querySelector('#SyncBatchSize').value;
+                    config.MaxConcurrentApiRequests = document.querySelector('#MaxConcurrentApiRequests').value;
+                    config.BatchDelayMilliseconds = document.querySelector('#BatchDelayMilliseconds').value;
                     config.SyncArtwork = document.querySelector('#SyncArtwork').checked;
                     config.SyncItemArtwork = document.querySelector('#SyncItemArtwork').checked;
+                    config.SkipUnchangedArtwork = document.querySelector('#SkipUnchangedArtwork').checked;
+                    config.ForceReplaceAllArtwork = document.querySelector('#ForceReplaceAllArtwork').checked;
                     config.EnableScheduledSync = document.querySelector('#EnableScheduledSync').checked;
                     config.EnableDebugMode = document.querySelector('#EnableDebugMode').checked;
 
@@ -864,8 +924,12 @@
                     // SyncPlaylists setting removed
                     // DeleteBeforeSync setting removed
                     document.querySelector('#SyncBatchSize').value = config.SyncBatchSize || 40;
+                    document.querySelector('#MaxConcurrentApiRequests').value = config.MaxConcurrentApiRequests || 3;
+                    document.querySelector('#BatchDelayMilliseconds').value = (config.BatchDelayMilliseconds !== undefined && config.BatchDelayMilliseconds !== null) ? config.BatchDelayMilliseconds : 750;
                     document.querySelector('#SyncArtwork').checked = config.SyncArtwork;
                     document.querySelector('#SyncItemArtwork').checked = config.SyncItemArtwork || false;
+                    document.querySelector('#SkipUnchangedArtwork').checked = config.SkipUnchangedArtwork !== false;
+                    document.querySelector('#ForceReplaceAllArtwork').checked = config.ForceReplaceAllArtwork || false;
                     document.querySelector('#EnableScheduledSync').checked = config.EnableScheduledSync;
                     document.querySelector('#SyncIntervalHours').value = config.SyncIntervalHours || 24;
                     document.querySelector('#EnableDebugMode').checked = config.EnableDebugMode || false;

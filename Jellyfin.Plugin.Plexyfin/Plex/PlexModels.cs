@@ -72,6 +72,14 @@ namespace Jellyfin.Plugin.Plexyfin.Plex {
         /// </summary>
         [JsonPropertyName("tvdbId")]
         public string? TvdbId { get; set; }
+
+        /// <summary>
+        /// Gets or sets the timestamp of the last time this episode was updated in Plex.
+        /// Used to determine whether locally cached artwork is still current, so unchanged
+        /// artwork does not need to be re-downloaded on every sync.
+        /// </summary>
+        [JsonPropertyName("updatedAt")]
+        public DateTimeOffset? UpdatedAt { get; set; }
     }
     
     /// <summary>
@@ -163,6 +171,16 @@ namespace Jellyfin.Plugin.Plexyfin.Plex {
         /// </summary>
         [JsonPropertyName("filePath")]
         public string? FilePath { get; set; }
+
+        /// <summary>
+        /// Gets or sets the timestamp of the last time this item was updated in Plex.
+        /// Used to determine whether locally cached artwork is still current, so unchanged
+        /// artwork does not need to be re-downloaded on every sync. This also picks up
+        /// artwork refreshes made by external tools such as Kometa (formerly Plex Meta Manager),
+        /// since Plex bumps this timestamp whenever the item's metadata or images change.
+        /// </summary>
+        [JsonPropertyName("updatedAt")]
+        public DateTimeOffset? UpdatedAt { get; set; }
     }
 
     /// <summary>
@@ -217,5 +235,13 @@ namespace Jellyfin.Plugin.Plexyfin.Plex {
         /// </summary>
         [JsonPropertyName("tvdbId")]
         public string? TvdbId { get; set; }
+
+        /// <summary>
+        /// Gets or sets the timestamp of the last time this season was updated in Plex.
+        /// Used to determine whether locally cached artwork is still current, so unchanged
+        /// artwork does not need to be re-downloaded on every sync.
+        /// </summary>
+        [JsonPropertyName("updatedAt")]
+        public DateTimeOffset? UpdatedAt { get; set; }
     }
 }
